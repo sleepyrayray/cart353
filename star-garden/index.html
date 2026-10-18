@@ -40,7 +40,7 @@
             <label for="heavy-elements">Composition</label>
             <span class="help">
               <button class="help-button" type="button" aria-label="About composition" aria-describedby="heavy-elements-help">?</button>
-              <span id="heavy-elements-help" class="tooltip" role="tooltip">Changes the proportion of dust mixed into the gas your star and planets form from.</span>
+              <span id="heavy-elements-help" class="tooltip" role="tooltip">Higher values start with more dust particles; changing this resets the simulation.</span>
             </span>
           </div>
           <output id="heavy-elements-value" for="heavy-elements">1.0× Sun</output>
@@ -53,14 +53,18 @@
       <p id="star-description" class="star-description" aria-live="polite">A star like our Sun, born from a familiar mix of gas and dust.</p>
 
       <div class="orbit-test">
-        <h3>Dust cloud</h3>
-        <p>Press Play to reveal dust. Invisible gas gently guides it clockwise, but some can escape or fade near your star. Reset starts fresh.</p>
+        <h3>Growing seed</h3>
+        <p>The seed grows and changes colour after collecting 10 dust particles. Remaining dust fades away by about 3 minutes. Reset starts fresh.</p>
         <div class="playback" role="group" aria-label="Simulation playback">
           <button id="play" type="button">Play</button>
           <button id="pause" type="button" disabled>Pause</button>
           <button id="reset" type="button">Reset</button>
         </div>
-        <p id="orbit-status" class="orbit-status" role="status">Ready</p>
+        <div class="playback-info">
+          <p id="orbit-status" class="orbit-status" role="status">Ready</p>
+          <p class="elapsed-time">Time: <span id="elapsed-time" role="timer" aria-live="off">0:00</span></p>
+        </div>
+        <p class="seed-counter">Dust collected: <output id="dust-collected" aria-live="off">0</output></p>
       </div>
     </section>
     <main id="space" aria-label="Star Garden simulation"></main>

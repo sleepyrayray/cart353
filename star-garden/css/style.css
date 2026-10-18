@@ -214,6 +214,31 @@ h3 {
   color: #f2cf9c;
 }
 
+.playback-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.orbit-test .playback-info p {
+  margin: 0;
+}
+
+.elapsed-time {
+  font-variant-numeric: tabular-nums;
+}
+
+.seed-counter {
+  margin-top: 8px;
+}
+
+.seed-counter output {
+  color: #f2cf9c;
+  font-variant-numeric: tabular-nums;
+}
+
 @media (max-width: 640px) {
   .intro {
     top: 20px;
