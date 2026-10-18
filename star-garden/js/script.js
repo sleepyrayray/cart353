@@ -3,6 +3,15 @@ const starSettings = {
   heavyElements: 1,
 };
 
+// Separate distance bands keep these gentle test orbits from crossing.
+const testOrbitBands = [[0.7, 0.8], [1.15, 1.3], [1.85, 2.05]];
+const planetColours = ["#e7b78c", "#a5d1e8", "#b8b0e3", "#c9b9a0", "#a4bfa5", "#d58e79"];
+
+let planets = [];
+let isPlaying = false;
+let timeAccumulator = 0;
+let lastFrameTime = 0;
+
 // Approximate colours for our chosen mass range, not a stellar evolution model.
 const starColours = [
   { mass: 0.2, rgb: [255, 121, 91] },
@@ -21,10 +30,17 @@ function setup() {
 
   document.getElementById("mass").addEventListener("input", updateStarSettings);
   document.getElementById("heavy-elements").addEventListener("input", updateStarSettings);
+  document.getElementById("play").addEventListener("click", playOrbit);
+  document.getElementById("pause").addEventListener("click", pauseOrbit);
+  document.getElementById("reset").addEventListener("click", resetOrbit);
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden && isPlaying) pauseOrbit();
+  });
   updateStarSettings();
 }
 
 function updateStarSettings() {
+  const previousMass = starSettings.mass;
   starSettings.mass = Number(document.getElementById("mass").value);
   starSettings.heavyElements = Number(document.getElementById("heavy-elements").value);
 
@@ -33,8 +49,60 @@ function updateStarSettings() {
 
   const description = getStarDescription(starSettings.mass, starSettings.heavyElements);
   document.getElementById("star-description").textContent = description;
-  describe(`${description} Mass is ${starSettings.mass.toFixed(1)} times the Sun's. Composition is ${starSettings.heavyElements.toFixed(1)} times the Sun's dust abundance. The star's appearance is simplified.`);
+  describe(`${description} Mass is ${starSettings.mass.toFixed(1)} times the Sun's. Composition is ${starSettings.heavyElements.toFixed(1)} times the Sun's reference abundance. Three test planets orbit at different distances when Play is pressed. Visible sizes and time are exaggerated.`);
+
+  if (!planets.length || starSettings.mass !== previousMass) resetOrbit();
+  else redraw();
+}
+
+function updatePlaybackControls(status) {
+  document.getElementById("play").disabled = isPlaying;
+  document.getElementById("pause").disabled = !isPlaying;
+  document.getElementById("orbit-status").textContent = status;
+}
+
+function playOrbit() {
+  if (isPlaying) return;
+  isPlaying = true;
+  lastFrameTime = performance.now();
+  updatePlaybackControls("Running");
+  loop();
+}
+
+function pauseOrbit() {
+  isPlaying = false;
+  noLoop();
+  updatePlaybackControls("Paused");
   redraw();
+}
+
+function resetOrbit() {
+  isPlaying = false;
+  noLoop();
+  // These are varied test planets, not formation outcomes from Composition yet.
+  planets = testOrbitBands.map(([near, far]) => createTestPlanet(starSettings.mass, {
+    semiMajorAxis: random(near, far),
+    eccentricity: random(0.02, 0.14),
+    phase: random(TWO_PI),
+    orientation: random(TWO_PI),
+    colour: random(planetColours),
+    size: random(0.75, 1.35),
+  }));
+  timeAccumulator = 0;
+  updatePlaybackControls("Ready");
+  redraw();
+}
+
+function advanceOrbit(frameSeconds) {
+  // Fixed physics steps keep the orbits independent of drawing speed.
+  // Cap long stalls instead of making the planets leap forward after them.
+  timeAccumulator += Math.min(frameSeconds, 0.25) * YEARS_PER_SECOND;
+  while (timeAccumulator + 1e-12 >= PHYSICS_STEP) {
+    for (const planet of planets) {
+      stepPlanet(planet, starSettings.mass, PHYSICS_STEP);
+    }
+    timeAccumulator = Math.max(0, timeAccumulator - PHYSICS_STEP);
+  }
 }
 
 // Five mass groups and three composition groups cover all 15 descriptions.
@@ -69,6 +137,11 @@ function getStarColour(mass) {
 }
 
 function draw() {
+  if (isPlaying) {
+    const now = performance.now();
+    advanceOrbit((now - lastFrameTime) / 1000);
+    lastFrameTime = now;
+  }
   background("#0b0d16");
 
   // Keep the preview clear of the controls on desktop and smaller screens.
@@ -83,7 +156,9 @@ function draw() {
   const y = (top + bottom) / 2;
 
   const amount = (starSettings.mass - 0.2) / 4.8;
-  const radius = min(100, availableSpace * 0.16) * (0.3 + 0.7 * pow(amount, 0.6));
+  // Zoom the view out to fit the outer planet without changing physical distances.
+  const viewScale = 1 / Math.max(1, ...planets.map(planet => planet.maxDistance));
+  const radius = min(100, availableSpace * 0.16) * (0.3 + 0.7 * pow(amount, 0.6)) * viewScale;
   if (radius <= 0) return;
 
   const rgb = getStarColour(starSettings.mass);
@@ -106,6 +181,18 @@ function draw() {
   context.beginPath();
   context.arc(x, y, radius, 0, Math.PI * 2);
   context.fill();
+
+  // Resizing only changes the view, not the planets' physical coordinates.
+  const pixelsPerAU = min(280, availableSpace * 0.36) * viewScale;
+  const planetRadius = min(7, max(4, availableSpace * 0.015));
+  for (const planet of planets) {
+    const planetX = x + planet.position.x * pixelsPerAU;
+    const planetY = y + planet.position.y * pixelsPerAU;
+    context.fillStyle = planet.colour;
+    context.beginPath();
+    context.arc(planetX, planetY, planetRadius * planet.size, 0, Math.PI * 2);
+    context.fill();
+  }
 }
 
 function windowResized() {

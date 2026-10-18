@@ -87,7 +87,8 @@ input[type="range"] {
 }
 
 input[type="range"]:focus-visible,
-.help-button:focus-visible {
+.help-button:focus-visible,
+.playback button:focus-visible {
   outline: 2px solid #f2cf9c;
   outline-offset: 5px;
 }
@@ -166,6 +167,53 @@ input[type="range"]:focus-visible,
   color: #f4f1e8;
 }
 
+.orbit-test {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid #2c3040;
+}
+
+h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
+.orbit-test p {
+  font-size: 12px;
+}
+
+.playback {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.playback button {
+  flex: 1;
+  padding: 9px 0;
+  border: 1px solid #414659;
+  border-radius: 6px;
+  background: #202536;
+  color: #f4f1e8;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.playback button:hover:not(:disabled) {
+  border-color: #f2cf9c;
+}
+
+.playback button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.orbit-test .orbit-status {
+  margin-top: 12px;
+  color: #f2cf9c;
+}
+
 @media (max-width: 640px) {
   .intro {
     top: 20px;
@@ -179,6 +227,25 @@ input[type="range"]:focus-visible,
     left: 20px;
     right: 20px;
     width: auto;
-    max-height: 48dvh;
+    max-height: 56dvh;
+    padding: 16px;
+  }
+
+  .controls h2 {
+    margin-bottom: 18px;
+  }
+
+  .control + .control {
+    margin-top: 20px;
+  }
+
+  .star-description {
+    min-height: 0;
+    margin-top: 20px;
+  }
+
+  .orbit-test {
+    margin-top: 16px;
+    padding-top: 16px;
   }
 }

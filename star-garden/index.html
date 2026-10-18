@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="css/style.css">
     <script src="js/libraries/p5.min.js" defer></script>
     <!-- p5.sound.min.js is kept in js/libraries for when sound is added. -->
+    <script src="js/physics.js" defer></script>
     <script src="js/script.js" defer></script>
   </head>
   <body>
@@ -50,6 +51,17 @@
       </div>
 
       <p id="star-description" class="star-description" aria-live="polite">A star like our Sun, born from a familiar mix of gas and dust.</p>
+
+      <div class="orbit-test">
+        <h3>Orbit test</h3>
+        <p>Three random test planets with slightly oval orbits. Reset makes a new mix, and changing mass does too.</p>
+        <div class="playback" role="group" aria-label="Orbit playback">
+          <button id="play" type="button">Play</button>
+          <button id="pause" type="button" disabled>Pause</button>
+          <button id="reset" type="button">Reset</button>
+        </div>
+        <p id="orbit-status" class="orbit-status" role="status">Ready</p>
+      </div>
     </section>
     <main id="space" aria-label="Star Garden simulation"></main>
   </body>
