@@ -4,43 +4,54 @@ const GRAVITY = 4 * Math.PI ** 2;
 const PHYSICS_STEP = 1 / 480;
 const YEARS_PER_SECOND = 1 / 8;
 
-function createTestPlanet(starMass, settings) {
-  const { semiMajorAxis, eccentricity, phase, orientation, colour, size } = settings;
-  const orbitParameter = semiMajorAxis * (1 - eccentricity ** 2);
-  const distance = orbitParameter / (1 + eccentricity * Math.cos(phase));
-  const speedScale = Math.sqrt(GRAVITY * starMass / orbitParameter);
-  const cosAngle = Math.cos(orientation);
-  const sinAngle = Math.sin(orientation);
-  const x = distance * Math.cos(phase);
-  const y = distance * Math.sin(phase);
-  // Keplerian starting velocity lets gravity produce the ellipse naturally.
-  const vx = -speedScale * Math.sin(phase);
-  const vy = speedScale * (eccentricity + Math.cos(phase));
+// Tuned for a visible transition, not measured gas density or real grain sizes.
+const GAS_DRAG_RATE = 1.4;
+const GAS_DENSITY_SCALE = 5;
+const GAS_ORBIT_SPEED = 0.98;
 
-  return {
-    mass: 0.000003,
-    colour,
-    size,
-    maxDistance: semiMajorAxis * (1 + eccentricity),
-    position: { x: x * cosAngle - y * sinAngle, y: x * sinAngle + y * cosAngle },
-    velocity: { x: vx * cosAngle - vy * sinAngle, y: vx * sinAngle + vy * cosAngle },
-  };
+function applyGasDrag(body, starMass, timeStep) {
+  const distance = Math.max(0.000001, Math.hypot(body.position.x, body.position.y));
+  const gasSpeed = GAS_ORBIT_SPEED * Math.sqrt(GRAVITY * starMass / distance);
+  // Canvas y points down, so this tangent rotates clockwise on screen.
+  const gasVelocityX = -body.position.y / distance * gasSpeed;
+  const gasVelocityY = body.position.x / distance * gasSpeed;
+  // An assumed gas disk extends smoothly outward, with weaker drag farther away.
+  // Smaller visual grains couple more strongly; there is no dust-to-dust force.
+  const rate = GAS_DRAG_RATE * Math.exp(-distance / GAS_DENSITY_SCALE) / body.size;
+  // Exact relaxation for a locally fixed flow prevents overshooting its velocity.
+  const blend = -Math.expm1(-rate * timeStep);
+  body.velocity.x += (gasVelocityX - body.velocity.x) * blend;
+  body.velocity.y += (gasVelocityY - body.velocity.y) * blend;
 }
 
 function getGravityAcceleration(position, starMass) {
-  const distance = Math.hypot(position.x, position.y);
+  const distance = Math.max(0.000001, Math.hypot(position.x, position.y));
   const strength = -GRAVITY * starMass / distance ** 3;
   return { x: position.x * strength, y: position.y * strength };
 }
 
-function stepPlanet(planet, starMass, timeStep) {
-  // Velocity Verlet: use gravity before and after moving to limit orbit drift.
-  // Only the fixed star's gravity is included, not pulls between planets.
-  const before = getGravityAcceleration(planet.position, starMass);
-  planet.position.x += planet.velocity.x * timeStep + 0.5 * before.x * timeStep ** 2;
-  planet.position.y += planet.velocity.y * timeStep + 0.5 * before.y * timeStep ** 2;
+function stepOrbitingBody(body, starMass, timeStep, surfaceRadius) {
+  // Split gas drag around the gravity step; gravity still uses Velocity Verlet.
+  // Gas is an assumed background flow, not a full fluid or N-body simulation.
+  const startX = body.position.x;
+  const startY = body.position.y;
+  if (Math.hypot(startX, startY) <= surfaceRadius) return false;
+  applyGasDrag(body, starMass, timeStep / 2);
+  const before = getGravityAcceleration(body.position, starMass);
+  body.position.x += body.velocity.x * timeStep + 0.5 * before.x * timeStep ** 2;
+  body.position.y += body.velocity.y * timeStep + 0.5 * before.y * timeStep ** 2;
 
-  const after = getGravityAcceleration(planet.position, starMass);
-  planet.velocity.x += 0.5 * (before.x + after.x) * timeStep;
-  planet.velocity.y += 0.5 * (before.y + after.y) * timeStep;
+  // Absorb surface crossings before evaluating gravity near the central singularity.
+  const dx = body.position.x - startX;
+  const dy = body.position.y - startY;
+  const lengthSquared = dx * dx + dy * dy;
+  const closest = lengthSquared === 0 ? 0 : Math.max(0, Math.min(1,
+    -(startX * dx + startY * dy) / lengthSquared));
+  if (Math.hypot(startX + closest * dx, startY + closest * dy) <= surfaceRadius) return false;
+
+  const after = getGravityAcceleration(body.position, starMass);
+  body.velocity.x += 0.5 * (before.x + after.x) * timeStep;
+  body.velocity.y += 0.5 * (before.y + after.y) * timeStep;
+  applyGasDrag(body, starMass, timeStep / 2);
+  return true;
 }
