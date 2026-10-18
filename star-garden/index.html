@@ -6,7 +6,7 @@
     <title>Star Garden</title>
     <link rel="stylesheet" href="css/style.css">
     <script src="js/libraries/p5.min.js" defer></script>
-    <script src="js/libraries/p5.sound.min.js" defer></script>
+    <!-- p5.sound.min.js is kept in js/libraries for when sound is added. -->
     <script src="js/script.js" defer></script>
   </head>
   <body>
@@ -14,6 +14,43 @@
       <h1>Star Garden</h1>
       <p>Create a star. Watch worlds grow.</p>
     </header>
+    <section class="controls" aria-labelledby="controls-title">
+      <h2 id="controls-title">Your star</h2>
+
+      <div class="control">
+        <div class="control-label">
+          <div class="label-help">
+            <label for="mass">Mass</label>
+            <span class="help">
+              <button class="help-button" type="button" aria-label="About mass" aria-describedby="mass-help">?</button>
+              <span id="mass-help" class="tooltip" role="tooltip">Changes your star’s size, colour, brightness, and gravitational pull.</span>
+            </span>
+          </div>
+          <output id="mass-value" for="mass">1.0× Sun</output>
+        </div>
+        <div class="slider">
+          <input id="mass" type="range" min="0.2" max="5" step="0.1" value="1" aria-describedby="mass-help">
+        </div>
+      </div>
+
+      <div class="control">
+        <div class="control-label">
+          <div class="label-help">
+            <label for="heavy-elements">Composition</label>
+            <span class="help">
+              <button class="help-button" type="button" aria-label="About composition" aria-describedby="heavy-elements-help">?</button>
+              <span id="heavy-elements-help" class="tooltip" role="tooltip">Changes the proportion of dust mixed into the gas your star and planets form from.</span>
+            </span>
+          </div>
+          <output id="heavy-elements-value" for="heavy-elements">1.0× Sun</output>
+        </div>
+        <div class="slider">
+          <input id="heavy-elements" type="range" min="0.3" max="3" step="0.1" value="1" aria-describedby="heavy-elements-help">
+        </div>
+      </div>
+
+      <p id="star-description" class="star-description" aria-live="polite">A star like our Sun, born from a familiar mix of gas and dust.</p>
+    </section>
     <main id="space" aria-label="Star Garden simulation"></main>
   </body>
 </html>

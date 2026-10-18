@@ -35,3 +35,150 @@ p {
 canvas {
   display: block;
 }
+
+.controls {
+  position: absolute;
+  top: 112px;
+  left: 24px;
+  z-index: 1;
+  width: 300px;
+  max-height: calc(100dvh - 136px);
+  overflow-y: auto;
+  padding: 20px;
+  border: 1px solid #2c3040;
+  border-radius: 12px;
+  background: #121522;
+}
+
+h2 {
+  margin: 0 0 24px;
+  font-size: 18px;
+}
+
+.control + .control {
+  margin-top: 24px;
+}
+
+.control {
+  position: relative;
+}
+
+.control-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  font-size: 14px;
+}
+
+output {
+  flex-shrink: 0;
+  color: #f2cf9c;
+  font-variant-numeric: tabular-nums;
+}
+
+input[type="range"] {
+  display: block;
+  width: 100%;
+  margin: 0;
+  accent-color: #f2cf9c;
+  cursor: pointer;
+}
+
+input[type="range"]:focus-visible,
+.help-button:focus-visible {
+  outline: 2px solid #f2cf9c;
+  outline-offset: 5px;
+}
+
+.label-help {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.help {
+  display: inline-flex;
+}
+
+.help-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid #73798d;
+  border-radius: 50%;
+  background: transparent;
+  color: #b9bbc8;
+  font: inherit;
+  font-size: 12px;
+  cursor: help;
+}
+
+.help-button:hover,
+.help-button:focus-visible {
+  border-color: #f2cf9c;
+  color: #f2cf9c;
+}
+
+.tooltip {
+  position: absolute;
+  top: 28px;
+  left: 0;
+  z-index: 2;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #414659;
+  border-radius: 8px;
+  background: #202536;
+  color: #f4f1e8;
+  font-size: 12px;
+  line-height: 1.5;
+  visibility: hidden;
+}
+
+.tooltip::before {
+  content: "";
+  position: absolute;
+  top: -10px;
+  left: 0;
+  width: 100%;
+  height: 10px;
+}
+
+.help:hover .tooltip,
+.help-button:focus-visible + .tooltip {
+  visibility: visible;
+}
+
+@media (hover: none) {
+  .help:focus-within .tooltip {
+    visibility: visible;
+  }
+}
+
+.star-description {
+  margin-top: 28px;
+  min-height: 63px;
+  color: #f4f1e8;
+}
+
+@media (max-width: 640px) {
+  .intro {
+    top: 20px;
+    left: 20px;
+    right: 20px;
+  }
+
+  .controls {
+    top: auto;
+    bottom: 20px;
+    left: 20px;
+    right: 20px;
+    width: auto;
+    max-height: 48dvh;
+  }
+}
