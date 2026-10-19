@@ -230,15 +230,6 @@ h3 {
   font-variant-numeric: tabular-nums;
 }
 
-.seed-counter {
-  margin-top: 8px;
-}
-
-.seed-counter output {
-  color: #f2cf9c;
-  font-variant-numeric: tabular-nums;
-}
-
 @media (max-width: 640px) {
   .intro {
     top: 20px;

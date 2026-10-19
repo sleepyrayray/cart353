@@ -30,11 +30,11 @@ function applyGasDrag(body, starMass, timeStep, gasAmount = 1) {
   body.velocity.y += (gasVelocityY - body.velocity.y) * blend;
 }
 
-function getGravityAcceleration(position, starMass, attractor = null) {
+function getGravityAcceleration(position, starMass, attractors = []) {
   const distance = Math.max(0.000001, Math.hypot(position.x, position.y));
   const strength = -GRAVITY * starMass / distance ** 3;
   const acceleration = { x: position.x * strength, y: position.y * strength };
-  if (attractor) {
+  for (const attractor of attractors) {
     const dx = attractor.position.x - position.x;
     const dy = attractor.position.y - position.y;
     const separation = Math.hypot(dx, dy);
@@ -55,14 +55,14 @@ function getGravityAcceleration(position, starMass, attractor = null) {
   return acceleration;
 }
 
-function stepOrbitingBody(body, starMass, timeStep, surfaceRadius, useGasDrag = true, attractor = null, gasAmount = 1) {
+function stepOrbitingBody(body, starMass, timeStep, surfaceRadius, useGasDrag = true, attractors = [], gasAmount = 1) {
   // Split gas drag around the gravity step; gravity still uses Velocity Verlet.
   // Gas is an assumed background flow, not a full fluid or N-body simulation.
   const startX = body.position.x;
   const startY = body.position.y;
   if (Math.hypot(startX, startY) <= surfaceRadius) return false;
   if (useGasDrag) applyGasDrag(body, starMass, timeStep / 2, gasAmount);
-  const before = getGravityAcceleration(body.position, starMass, attractor);
+  const before = getGravityAcceleration(body.position, starMass, attractors);
   body.position.x += body.velocity.x * timeStep + 0.5 * before.x * timeStep ** 2;
   body.position.y += body.velocity.y * timeStep + 0.5 * before.y * timeStep ** 2;
 
@@ -74,7 +74,7 @@ function stepOrbitingBody(body, starMass, timeStep, surfaceRadius, useGasDrag = 
     -(startX * dx + startY * dy) / lengthSquared));
   if (Math.hypot(startX + closest * dx, startY + closest * dy) <= surfaceRadius) return false;
 
-  const after = getGravityAcceleration(body.position, starMass, attractor);
+  const after = getGravityAcceleration(body.position, starMass, attractors);
   body.velocity.x += 0.5 * (before.x + after.x) * timeStep;
   body.velocity.y += 0.5 * (before.y + after.y) * timeStep;
   if (useGasDrag) applyGasDrag(body, starMass, timeStep / 2, gasAmount);

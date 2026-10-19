@@ -3,20 +3,21 @@ const starSettings = {
   heavyElements: 1,
 };
 
-const MAX_DUST_COUNT = 3000;
+const MAX_DUST_COUNT = 4500;
 const DUST_FADE_SECONDS = 1.2;
 const SEED_STARTING_MATERIAL = 4;
 const SEED_VISUAL_GROWTH = 2.5;
 const SEED_GROWTH_SECONDS = 2;
 const SEED_MAX_STAR_RATIO = 0.5;
 const SEED_COLOUR_THRESHOLD = 10;
+const SEED_ORBIT_FACTORS = [1, 1.5, 2];
 const planetColours = [[121, 165, 191], [180, 122, 100], [128, 158, 125], [160, 137, 182]];
 // Compressed disk evolution for the experience, not real astronomical timescales.
 const DISK_CLEARING_START_SECONDS = 60;
 const DISK_CLEARING_DURATION_SECONDS = 120;
 
 let dustParticles = [];
-let seed;
+let seeds = [];
 let diskAgeSeconds = 0;
 let dustRevealTime = 0;
 let isPlaying = false;
@@ -61,10 +62,10 @@ function updateStarSettings() {
 
   const description = getStarDescription(starSettings.mass, starSettings.heavyElements);
   document.getElementById("star-description").textContent = description;
-  describe(`${description} Mass is ${starSettings.mass.toFixed(1)} times the Sun's. Composition is ${starSettings.heavyElements.toFixed(1)} times the Sun's reference abundance. Press Play to reveal a finite dust supply and one seed that initially looks like the other particles. The seed gently attracts nearby dust and grows only by collecting dust that touches it. Its pull strengthens with growth but is capped. Remaining dust gradually fades out by about three minutes of playback as gas drag weakens, leaving the seed visible. Dust can also escape or fade near the star. Reset starts fresh. Visible sizes, seed attraction, and time are exaggerated.`);
+  describe(`${description} Mass is ${starSettings.mass.toFixed(1)} times the Sun's. Composition is ${starSettings.heavyElements.toFixed(1)} times the Sun's reference abundance. Press Play to reveal a finite dust supply and three seeds that initially look like the other particles. Each seed gently attracts nearby dust and grows only by collecting dust that touches it. Their pull strengthens with growth but is capped. Seeds do not pull on or collide with one another. Remaining dust gradually fades out by about three minutes of playback as gas drag weakens, leaving the seeds visible. Dust can also escape or fade near the star. Reset starts fresh. Visible sizes, seed attraction, and time are exaggerated.`);
 
   // Both settings define the starting system; don't spawn extra dust mid-run.
-  if (!seed || starSettings.mass !== previousMass || starSettings.heavyElements !== previousComposition) resetOrbit();
+  if (!seeds.length || starSettings.mass !== previousMass || starSettings.heavyElements !== previousComposition) resetOrbit();
   else redraw();
 }
 
@@ -97,21 +98,24 @@ function resetOrbit() {
   dustParticles = createDustCloud(view);
   diskAgeSeconds = 0;
   updateElapsedTime();
-  const heatRadius = getDustHeatRadius(view);
-  const distance = Math.max(1.3, heatRadius * 1.25 + 0.15);
-  seed = {
-    position: { x: distance, y: 0 },
-    velocity: { x: 0, y: Math.sqrt(GRAVITY * starSettings.mass / distance) },
-    material: SEED_STARTING_MATERIAL,
-    visibleMaterial: SEED_STARTING_MATERIAL,
-    size: random(1.1, 1.5),
-    opacity: random(0.45, 0.65),
-    planetColour: random(planetColours),
-    colourProgress: 0,
-    collected: 0,
-    active: true,
-  };
-  updateSeedCounter();
+  const startingPhase = random(TWO_PI);
+  seeds = SEED_ORBIT_FACTORS.map((factor, index) => {
+    const distance = view.seedOrbitBase * factor * random(0.96, 1.04);
+    const phase = startingPhase + index * TWO_PI / 3 + random(-0.3, 0.3);
+    const speed = Math.sqrt(GRAVITY * starSettings.mass / distance);
+    return {
+      position: { x: Math.cos(phase) * distance, y: Math.sin(phase) * distance },
+      velocity: { x: -Math.sin(phase) * speed, y: Math.cos(phase) * speed },
+      material: SEED_STARTING_MATERIAL,
+      visibleMaterial: SEED_STARTING_MATERIAL,
+      size: random(1.1, 1.5),
+      opacity: random(0.45, 0.65),
+      planetColour: random(planetColours),
+      colourProgress: 0,
+      collected: 0,
+      active: true,
+    };
+  });
   dustRevealTime = 0;
   timeAccumulator = 0;
   updatePlaybackControls("Ready");
@@ -125,47 +129,48 @@ function advanceOrbit(frameSeconds) {
   const view = getSpaceView();
   const surfaceRadius = view.radius / view.pixelsPerAU;
   const heatRadius = getDustHeatRadius(view);
-  const previousCollected = seed.collected;
   while (timeAccumulator + 1e-12 >= PHYSICS_STEP) {
     diskAgeSeconds += PHYSICS_STEP / YEARS_PER_SECOND;
     const clearing = Math.max(0, Math.min(1,
       (diskAgeSeconds - DISK_CLEARING_START_SECONDS) / DISK_CLEARING_DURATION_SECONDS));
     const gasAmount = 1 - smoothProgress(clearing);
-    // Keep the first seed on a star-driven orbit; dust drag is not applied to it.
-    if (seed.active) {
-      seed.active = stepOrbitingBody(seed, starSettings.mass, PHYSICS_STEP, surfaceRadius, false);
+    // Seeds only feel the star: no gas drag, mutual gravity, or mutual collisions.
+    for (const seed of seeds) {
+      if (seed.active) {
+        seed.active = stepOrbitingBody(seed, starSettings.mass, PHYSICS_STEP, surfaceRadius, false);
+      }
     }
-    // No reciprocal dust pull in this first test; the seed keeps its star-driven orbit.
-    const attractor = seed.active ? {
+    const attractors = seeds.filter(seed => seed.active).map(seed => ({
       position: seed.position,
       materialRatio: seed.visibleMaterial / SEED_STARTING_MATERIAL,
-    } : null;
+    }));
     for (const particle of dustParticles) {
       if (particle.remaining <= 0) continue;
       const progress = (clearing - particle.clearingStart) / (particle.clearingEnd - particle.clearingStart);
       particle.diskFraction = 1 - smoothProgress(progress);
       if (particle.diskFraction <= 0) continue;
-      if (!stepOrbitingBody(particle, starSettings.mass, PHYSICS_STEP, surfaceRadius, true, attractor, gasAmount)) {
+      if (!stepOrbitingBody(particle, starSettings.mass, PHYSICS_STEP, surfaceRadius, true, attractors, gasAmount)) {
         particle.remaining = 0;
         continue;
       }
       const distance = Math.hypot(particle.position.x, particle.position.y);
       const heat = Math.max(0, 1 - distance / heatRadius);
       particle.remaining = Math.max(0, particle.remaining - heat * PHYSICS_STEP / YEARS_PER_SECOND / 0.6);
-      if (seed.active && particle.remaining > 0) collectDust(particle, view.pixelsPerAU, view.radius);
+      if (particle.remaining > 0) collectDust(particle, view.pixelsPerAU, view.radius);
     }
     // Ease toward collected material instead of jumping in size on each contact.
     // Only runs while playing, and never grows beyond material already collected.
     const growthBlend = -Math.expm1(-PHYSICS_STEP / YEARS_PER_SECOND / SEED_GROWTH_SECONDS);
-    seed.visibleMaterial += (seed.material - seed.visibleMaterial) * growthBlend;
     // Colour is a visual milestone, not a scientific planet-formation threshold.
-    const colourTarget = seed.collected >= SEED_COLOUR_THRESHOLD ? 1 : 0;
     const colourBlend = -Math.expm1(-PHYSICS_STEP / YEARS_PER_SECOND / 2);
-    seed.colourProgress += (colourTarget - seed.colourProgress) * colourBlend;
+    for (const seed of seeds) {
+      seed.visibleMaterial += (seed.material - seed.visibleMaterial) * growthBlend;
+      const colourTarget = seed.collected >= SEED_COLOUR_THRESHOLD ? 1 : 0;
+      seed.colourProgress += (colourTarget - seed.colourProgress) * colourBlend;
+    }
     timeAccumulator = Math.max(0, timeAccumulator - PHYSICS_STEP);
   }
   dustParticles = dustParticles.filter(particle => particle.remaining > 0 && particle.diskFraction > 0);
-  if (seed.collected !== previousCollected) updateSeedCounter();
   updateElapsedTime();
 }
 
@@ -188,7 +193,7 @@ function getDustHeatRadius(view) {
   return Math.max(view.radius / view.pixelsPerAU * 2, 0.12 * starSettings.mass ** 1.75);
 }
 
-function getSeedRadius(starRadius) {
+function getSeedRadius(seed, starRadius) {
   // Exaggerated cube-root visual growth, capped below the displayed star's size.
   // This is a display mapping, not a physical radius or density calculation.
   const acquired = seed.visibleMaterial - SEED_STARTING_MATERIAL;
@@ -199,19 +204,26 @@ function getSeedRadius(starRadius) {
 function collectDust(particle, pixelsPerAU, starRadius) {
   // Contact uses exactly the radii drawn on screen, converted to world units.
   // Each dot is one material bundle; heat loss reduces what it can contribute.
-  const collectionRadius = (getSeedRadius(starRadius) + particle.size) / pixelsPerAU;
-  const dx = particle.position.x - seed.position.x;
-  const dy = particle.position.y - seed.position.y;
-  if (dx * dx + dy * dy > collectionRadius ** 2) return;
+  // If contacts overlap, choose the closest seed instead of favouring array order.
+  let collector = null;
+  let closest = Infinity;
+  for (const seed of seeds) {
+    if (!seed.active) continue;
+    const collectionRadius = (getSeedRadius(seed, starRadius) + particle.size) / pixelsPerAU;
+    const dx = particle.position.x - seed.position.x;
+    const dy = particle.position.y - seed.position.y;
+    const distanceSquared = dx * dx + dy * dy;
+    if (distanceSquared <= collectionRadius ** 2 && distanceSquared < closest) {
+      collector = seed;
+      closest = distanceSquared;
+    }
+  }
+  if (!collector) return;
   // Material already cleared from a fading bundle cannot also feed the seed.
-  seed.material += particle.remaining * particle.diskFraction;
-  seed.collected++;
+  collector.material += particle.remaining * particle.diskFraction;
+  collector.collected++;
   particle.remaining = 0;
   // This first growth test transfers material without changing the seed's velocity.
-}
-
-function updateSeedCounter() {
-  document.getElementById("dust-collected").textContent = seed.collected;
 }
 
 function getSpaceView() {
@@ -223,11 +235,19 @@ function getSpaceView() {
   const bottom = compact ? panel.top : height;
   const availableSpace = Math.max(0, Math.min(width - left, bottom - top));
   const amount = (starSettings.mass - 0.2) / 4.8;
+  const basePixelsPerAU = Math.max(12, Math.min(112, availableSpace * 0.144));
+  const baseRadius = Math.min(100, availableSpace * 0.16) * (0.3 + 0.7 * amount ** 0.6) / 2.5;
+  const heatRadius = Math.max(baseRadius / basePixelsPerAU * 2, 0.12 * starSettings.mass ** 1.75);
+  const seedOrbitBase = Math.max(1.3, heatRadius * 1.25 + 0.15);
+  // Zoom out as needed to keep even the outer seed's full orbit on screen.
+  const outerOrbit = seedOrbitBase * Math.max(...SEED_ORBIT_FACTORS) * 1.04;
+  const pixelsPerAU = Math.max(1, Math.min(basePixelsPerAU, availableSpace * 0.4 / outerOrbit));
   return {
     x: (left + width) / 2,
     y: (top + bottom) / 2,
-    pixelsPerAU: Math.max(12, Math.min(112, availableSpace * 0.144)),
-    radius: Math.min(100, availableSpace * 0.16) * (0.3 + 0.7 * amount ** 0.6) / 2.5,
+    pixelsPerAU,
+    radius: baseRadius * pixelsPerAU / basePixelsPerAU,
+    seedOrbitBase,
   };
 }
 
@@ -264,11 +284,12 @@ function createDustCloud(view) {
     bottom: (height + padding - view.y) / view.pixelsPerAU,
   };
   const dustDensity = view.pixelsPerAU ** 2 / 1300;
-  // Reserve capacity for the full 0.3–3 Composition range: more dust, not larger dots.
+  // Add a baseline supply so low Composition still gives seeds material to find.
+  // Higher Composition adds more dust, without changing dot size or seed growth.
   // This is a visual mapping of solid abundance, not a calibrated disk mass.
-  const referenceCount = Math.min(MAX_DUST_COUNT / 3,
+  const referenceCount = Math.min(1000,
     (bounds.right - bounds.left) * (bounds.bottom - bounds.top) * dustDensity);
-  const count = Math.min(MAX_DUST_COUNT, Math.round(referenceCount * starSettings.heavyElements));
+  const count = Math.min(MAX_DUST_COUNT, Math.round(referenceCount * (1.5 + starSettings.heavyElements)));
   const particles = [];
   for (let i = 0; i < count; i++) {
     const position = { x: random(bounds.left, bounds.right), y: random(bounds.top, bounds.bottom) };
@@ -362,10 +383,11 @@ function draw() {
     context.arc(particleX, particleY, particle.size, 0, Math.PI * 2);
     context.fill();
   }
-  if (seed.active) {
+  for (const seed of seeds) {
+    if (!seed.active) continue;
     const seedX = x + seed.position.x * pixelsPerAU;
     const seedY = y + seed.position.y * pixelsPerAU;
-    const seedRadius = getSeedRadius(radius);
+    const seedRadius = getSeedRadius(seed, radius);
     // Start dust-like, then become more opaque only as material is collected.
     const acquired = seed.visibleMaterial - SEED_STARTING_MATERIAL;
     const seedOpacity = seed.opacity + (1 - seed.opacity) * acquired / (acquired + 12);
