@@ -5,12 +5,15 @@ const starSettings = {
 
 const MAX_DUST_COUNT = 4500;
 const DUST_FADE_SECONDS = 1.2;
+// Shared display scale for the star and seeds, not a change to their masses.
+const BODY_VISUAL_SCALE = 1.5;
 const SEED_STARTING_MATERIAL = 4;
 const SEED_VISUAL_GROWTH = 2.5;
 const SEED_GROWTH_SECONDS = 2;
 const SEED_MAX_STAR_RATIO = 0.5;
-const SEED_COLOUR_THRESHOLD = 10;
-const SEED_ORBIT_FACTORS = [1, 1.5, 2];
+const SEED_COLOUR_THRESHOLD = 7;
+const MAX_SEEDS = 10;
+const SEED_OUTER_ORBIT_FACTOR = 2;
 const planetColours = [[121, 165, 191], [180, 122, 100], [128, 158, 125], [160, 137, 182]];
 // Compressed disk evolution for the experience, not real astronomical timescales.
 const DISK_CLEARING_START_SECONDS = 60;
@@ -62,7 +65,7 @@ function updateStarSettings() {
 
   const description = getStarDescription(starSettings.mass, starSettings.heavyElements);
   document.getElementById("star-description").textContent = description;
-  describe(`${description} Mass is ${starSettings.mass.toFixed(1)} times the Sun's. Composition is ${starSettings.heavyElements.toFixed(1)} times the Sun's reference abundance. Press Play to reveal a finite dust supply and three seeds that initially look like the other particles. Each seed gently attracts nearby dust and grows only by collecting dust that touches it. Their pull strengthens with growth but is capped. Seeds do not pull on or collide with one another. Remaining dust gradually fades out by about three minutes of playback as gas drag weakens, leaving the seeds visible. Dust can also escape or fade near the star. Reset starts fresh. Visible sizes, seed attraction, and time are exaggerated.`);
+  describe(`${description} Mass is ${starSettings.mass.toFixed(1)} times the Sun's. Composition is ${starSettings.heavyElements.toFixed(1)} times the Sun's reference abundance. Each reset creates between one and ten seeds with evenly spaced orbital distances. Press Play to reveal the finite dust supply and seeds, which initially look like the other particles. Each seed gently attracts nearby dust and grows only by collecting dust that touches it. Their pull strengthens with growth but is capped. Seeds do not pull on or collide with one another. Remaining dust gradually fades out by about three minutes of playback as gas drag weakens, leaving the seeds visible. Dust can also escape or fade near the star. Reset starts fresh. Visible sizes, seed attraction, and time are exaggerated.`);
 
   // Both settings define the starting system; don't spawn extra dust mid-run.
   if (!seeds.length || starSettings.mass !== previousMass || starSettings.heavyElements !== previousComposition) resetOrbit();
@@ -99,9 +102,13 @@ function resetOrbit() {
   diskAgeSeconds = 0;
   updateElapsedTime();
   const startingPhase = random(TWO_PI);
-  seeds = SEED_ORBIT_FACTORS.map((factor, index) => {
-    const distance = view.seedOrbitBase * factor * random(0.96, 1.04);
-    const phase = startingPhase + index * TWO_PI / 3 + random(-0.3, 0.3);
+  const seedCount = Math.floor(random(1, MAX_SEEDS + 1));
+  seeds = Array.from({ length: seedCount }, (_, index) => {
+    // Equal radial gaps, with a single seed placed midway through the same range.
+    const fraction = seedCount === 1 ? 0.5 : index / (seedCount - 1);
+    const factor = 1 + fraction * (SEED_OUTER_ORBIT_FACTOR - 1);
+    const distance = view.seedOrbitBase * factor;
+    const phase = startingPhase + index * TWO_PI / seedCount;
     const speed = Math.sqrt(GRAVITY * starSettings.mass / distance);
     return {
       position: { x: Math.cos(phase) * distance, y: Math.sin(phase) * distance },
@@ -197,7 +204,7 @@ function getSeedRadius(seed, starRadius) {
   // Exaggerated cube-root visual growth, capped below the displayed star's size.
   // This is a display mapping, not a physical radius or density calculation.
   const acquired = seed.visibleMaterial - SEED_STARTING_MATERIAL;
-  const grownRadius = seed.size * Math.cbrt(1 + acquired * SEED_VISUAL_GROWTH);
+  const grownRadius = seed.size * Math.cbrt(1 + acquired * SEED_VISUAL_GROWTH) * BODY_VISUAL_SCALE;
   return Math.min(grownRadius, starRadius * SEED_MAX_STAR_RATIO);
 }
 
@@ -236,16 +243,16 @@ function getSpaceView() {
   const availableSpace = Math.max(0, Math.min(width - left, bottom - top));
   const amount = (starSettings.mass - 0.2) / 4.8;
   const basePixelsPerAU = Math.max(12, Math.min(112, availableSpace * 0.144));
-  const baseRadius = Math.min(100, availableSpace * 0.16) * (0.3 + 0.7 * amount ** 0.6) / 2.5;
+  const baseRadius = Math.min(100, availableSpace * 0.16) * (0.3 + 0.7 * amount ** 0.6) / 2.5 * BODY_VISUAL_SCALE;
   const heatRadius = Math.max(baseRadius / basePixelsPerAU * 2, 0.12 * starSettings.mass ** 1.75);
   const seedOrbitBase = Math.max(1.3, heatRadius * 1.25 + 0.15);
   // Fit the largest supported system at every mass, rather than zooming out as
   // mass increases. Otherwise the camera can make a growing star appear to shrink.
   const maxMass = starColours[starColours.length - 1].mass;
-  const maxBaseRadius = Math.min(100, availableSpace * 0.16) / 2.5;
+  const maxBaseRadius = Math.min(100, availableSpace * 0.16) / 2.5 * BODY_VISUAL_SCALE;
   const maxHeatRadius = Math.max(maxBaseRadius / basePixelsPerAU * 2, 0.12 * maxMass ** 1.75);
   const maxSeedOrbitBase = Math.max(1.3, maxHeatRadius * 1.25 + 0.15);
-  const outerOrbit = maxSeedOrbitBase * Math.max(...SEED_ORBIT_FACTORS) * 1.04;
+  const outerOrbit = maxSeedOrbitBase * SEED_OUTER_ORBIT_FACTOR * 1.04;
   const pixelsPerAU = Math.max(1, Math.min(basePixelsPerAU, availableSpace * 0.4 / outerOrbit));
   return {
     x: (left + width) / 2,
