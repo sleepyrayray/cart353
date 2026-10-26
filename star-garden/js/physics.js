@@ -7,7 +7,8 @@ const YEARS_PER_SECOND = 1 / 8;
 // Tuned for a visible transition, not measured gas density or real grain sizes.
 const GAS_DRAG_RATE = 1.4;
 const GAS_DENSITY_SCALE = 5;
-const GAS_ORBIT_SPEED = 0.98;
+// Keep the gas slightly below circular orbital speed without excessive inward drift.
+const GAS_ORBIT_SPEED = 0.995;
 
 // Exaggerated seed attraction for this visual model, not a calibrated planet mass.
 const SEED_INITIAL_PULL = 0.08;
@@ -22,8 +23,10 @@ function applyGasDrag(body, starMass, timeStep, gasAmount = 1) {
   const gasVelocityX = -body.position.y / distance * gasSpeed;
   const gasVelocityY = body.position.x / distance * gasSpeed;
   // An assumed gas disk extends smoothly outward, with weaker drag farther away.
-  // Smaller visual grains couple more strongly; there is no dust-to-dust force.
-  const rate = GAS_DRAG_RATE * Math.exp(-distance / GAS_DENSITY_SCALE) / body.size * gasAmount;
+  // Coupling stands for unresolved grain properties, not a force that steers by angle.
+  // Fine, tightly coupled dust follows gas more readily than weakly coupled solids.
+  const coupling = body.dragCoupling ?? 1;
+  const rate = GAS_DRAG_RATE * Math.exp(-distance / GAS_DENSITY_SCALE) / body.size * coupling * gasAmount;
   // Exact relaxation for a locally fixed flow prevents overshooting its velocity.
   const blend = -Math.expm1(-rate * timeStep);
   body.velocity.x += (gasVelocityX - body.velocity.x) * blend;

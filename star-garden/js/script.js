@@ -239,8 +239,13 @@ function getSpaceView() {
   const baseRadius = Math.min(100, availableSpace * 0.16) * (0.3 + 0.7 * amount ** 0.6) / 2.5;
   const heatRadius = Math.max(baseRadius / basePixelsPerAU * 2, 0.12 * starSettings.mass ** 1.75);
   const seedOrbitBase = Math.max(1.3, heatRadius * 1.25 + 0.15);
-  // Zoom out as needed to keep even the outer seed's full orbit on screen.
-  const outerOrbit = seedOrbitBase * Math.max(...SEED_ORBIT_FACTORS) * 1.04;
+  // Fit the largest supported system at every mass, rather than zooming out as
+  // mass increases. Otherwise the camera can make a growing star appear to shrink.
+  const maxMass = starColours[starColours.length - 1].mass;
+  const maxBaseRadius = Math.min(100, availableSpace * 0.16) / 2.5;
+  const maxHeatRadius = Math.max(maxBaseRadius / basePixelsPerAU * 2, 0.12 * maxMass ** 1.75);
+  const maxSeedOrbitBase = Math.max(1.3, maxHeatRadius * 1.25 + 0.15);
+  const outerOrbit = maxSeedOrbitBase * Math.max(...SEED_ORBIT_FACTORS) * 1.04;
   const pixelsPerAU = Math.max(1, Math.min(basePixelsPerAU, availableSpace * 0.4 / outerOrbit));
   return {
     x: (left + width) / 2,
@@ -255,16 +260,52 @@ function createDustParticle(position) {
   const distance = Math.hypot(position.x, position.y);
   const angle = Math.atan2(position.y, position.x);
   const circularSpeed = Math.sqrt(GRAVITY * starSettings.mass / distance);
-  // Most material shares a rotation direction. Some has enough speed to pass by.
-  // Randomness is assigned once; particles never randomly steer each frame.
-  const passing = random() < 0.15 + 0.45 * (1 - Math.exp(-distance / 5));
-  const direction = passing ? random(TWO_PI) : angle + HALF_PI + random(-0.08, 0.08);
-  const speed = circularSpeed * (passing ? random(1.45, 1.8) : random(0.92, 1.04));
+  // A rotating disk should mostly share a direction, even before it settles.
+  // These population fractions are design choices, not measured disk statistics.
+  const passingChance = 0.025 + 0.015 * (1 - Math.exp(-distance / 5));
+  const population = random();
+  const passing = population < passingChance;
+  const counterclockwise = !passing && population < passingChance + 0.005 && distance > 1;
+  const unsettled = !passing && !counterclockwise && random() < 0.5;
+  let direction = angle + HALF_PI + random(-0.08, 0.08);
+  let speed = circularSpeed * random(0.97, 1.03);
+  let dragCoupling = random(1, 3);
+  let size = random(0.7, 1.5);
+  if (passing) {
+    // Fast, weakly coupled material can leave instead of being forced into orbit.
+    // A small flyby population has varied directions, not an outward-only bias.
+    direction = random(TWO_PI);
+    speed = circularSpeed * random(1.5, 1.8);
+    dragCoupling = random(0.05, 0.25);
+    size = random(1.1, 1.5);
+  } else if (counterclockwise) {
+    // Rare fine grains respond quickly enough to gas to have a chance to turn.
+    // They can still lose angular momentum and fall inward; survival is not forced.
+    direction = angle - HALF_PI + random(-0.2, 0.2);
+    speed = circularSpeed * random(0.7, 0.95);
+    dragCoupling = random(25, 50);
+    size = random(0.7, 0.9);
+  }
+  let velocity = { x: Math.cos(direction) * speed, y: Math.sin(direction) * speed };
+  if (unsettled) {
+    // A positive clockwise component and modest radial motion keep initial energy
+    // below escape energy, without sending most grains straight toward the star.
+    // These begin on mildly eccentric bound paths; drag can gradually settle them.
+    const tangentialSpeed = circularSpeed * random(0.94, 1.04);
+    const radialSpeed = circularSpeed * random(-0.2, 0.2);
+    velocity = {
+      x: -Math.sin(angle) * tangentialSpeed + Math.cos(angle) * radialSpeed,
+      y: Math.cos(angle) * tangentialSpeed + Math.sin(angle) * radialSpeed,
+    };
+    dragCoupling = random(3, 8);
+  }
+  // Initial conditions only: gravity and gas drag determine subsequent motion.
   const clearingStart = random(0, 0.65);
   return {
     position,
-    velocity: { x: Math.cos(direction) * speed, y: Math.sin(direction) * speed },
-    size: random(0.7, 1.5),
+    velocity,
+    size,
+    dragCoupling,
     opacity: random(0.25, 0.75),
     remaining: 1,
     diskFraction: 1,
