@@ -16,8 +16,9 @@ const MAX_SEEDS = 10;
 const SEED_OUTER_ORBIT_FACTOR = 2;
 const planetColours = [[121, 165, 191], [180, 122, 100], [128, 158, 125], [160, 137, 182]];
 // Compressed disk evolution for the experience, not real astronomical timescales.
-const DISK_CLEARING_START_SECONDS = 60;
-const DISK_CLEARING_DURATION_SECONDS = 120;
+const DISK_CLEARING_START_SECONDS = 90;
+const DISK_CLEARING_DURATION_SECONDS = 90;
+const LAST_DUST_DEPARTURE_SECONDS = 160;
 
 let dustParticles = [];
 let seeds = [];
@@ -65,7 +66,7 @@ function updateStarSettings() {
 
   const description = getStarDescription(starSettings.mass, starSettings.heavyElements);
   document.getElementById("star-description").textContent = description;
-  describe(`${description} Mass is ${starSettings.mass.toFixed(1)} times the Sun's. Composition is ${starSettings.heavyElements.toFixed(1)} times the Sun's reference abundance. Each reset creates between one and ten seeds with evenly spaced orbital distances. Press Play to reveal the finite dust supply and seeds, which initially look like the other particles. Each seed gently attracts nearby dust and grows only by collecting dust that touches it. Their pull strengthens with growth but is capped. Seeds do not pull on or collide with one another. Remaining dust gradually fades out by about three minutes of playback as gas drag weakens, leaving the seeds visible. Dust can also escape or fade near the star. Reset starts fresh. Visible sizes, seed attraction, and time are exaggerated.`);
+  describe(`${description} Mass is ${starSettings.mass.toFixed(1)} times the Sun's. Composition is ${starSettings.heavyElements.toFixed(1)} times the Sun's reference abundance. Each reset creates between one and ten seeds with evenly spaced orbital distances. Press Play to reveal the finite dust supply and seeds, which initially look like the other particles. Each seed gently attracts nearby dust and grows only by collecting dust that touches it. Their pull strengthens with growth but is capped. Seeds do not pull on or collide with one another. From one minute thirty seconds, remaining dust departs outward at varied times, leaving the screen by three minutes as gas drag weakens. Dust can also escape or fade near the star. Reset starts fresh. Visible sizes, seed attraction, clearing motion, and time are exaggerated.`);
 
   // Both settings define the starting system; don't spawn extra dust mid-run.
   if (!seeds.length || starSettings.mass !== previousMass || starSettings.heavyElements !== previousComposition) resetOrbit();
@@ -153,9 +154,11 @@ function advanceOrbit(frameSeconds) {
     }));
     for (const particle of dustParticles) {
       if (particle.remaining <= 0) continue;
-      const progress = (clearing - particle.clearingStart) / (particle.clearingEnd - particle.clearingStart);
-      particle.diskFraction = 1 - smoothProgress(progress);
-      if (particle.diskFraction <= 0) continue;
+      if (diskAgeSeconds >= particle.departureAt) {
+        moveDepartingDust(particle, view);
+        if (particle.remaining > 0) collectDust(particle, view.pixelsPerAU, view.radius);
+        continue;
+      }
       if (!stepOrbitingBody(particle, starSettings.mass, PHYSICS_STEP, surfaceRadius, true, attractors, gasAmount)) {
         particle.remaining = 0;
         continue;
@@ -177,7 +180,7 @@ function advanceOrbit(frameSeconds) {
     }
     timeAccumulator = Math.max(0, timeAccumulator - PHYSICS_STEP);
   }
-  dustParticles = dustParticles.filter(particle => particle.remaining > 0 && particle.diskFraction > 0);
+  dustParticles = dustParticles.filter(particle => particle.remaining > 0);
   updateElapsedTime();
 }
 
@@ -192,6 +195,35 @@ function updateElapsedTime() {
 function smoothProgress(amount) {
   const progress = Math.max(0, Math.min(1, amount));
   return progress * progress * (3 - 2 * progress);
+}
+
+function moveDepartingDust(particle, view) {
+  // A timed, wind-inspired clearing animation, not a computed radiation force.
+  // Normal gravity and gas drag govern dust until its individual departure begins.
+  const farthestCorner = Math.hypot(Math.max(view.x, width - view.x), Math.max(view.y, height - view.y));
+  const exitDistance = (farthestCorner + 80) / view.pixelsPerAU;
+  if (!particle.departure) {
+    const { x, y } = particle.position;
+    const radius = Math.max(0.000001, Math.hypot(x, y));
+    particle.departure = {
+      radius,
+      angle: Math.atan2(y, x),
+      angularSpeed: (x * particle.velocity.y - y * particle.velocity.x) / radius ** 2 * YEARS_PER_SECOND,
+      exitDistance: Math.max(radius + 1, exitDistance),
+    };
+  }
+  const path = particle.departure;
+  // Account for a larger window without adding dust or leaving dust visible at 3:00.
+  path.exitDistance = Math.max(path.exitDistance, exitDistance);
+  const elapsed = Math.max(0, diskAgeSeconds - particle.departureAt);
+  const progress = Math.min(1, elapsed / particle.departureDuration);
+  const radius = path.radius + (path.exitDistance - path.radius) * smoothProgress(progress);
+  // Retain its orbit direction at first, then gradually unwind into outward travel.
+  const angle = path.angle + path.angularSpeed * elapsed * (1 - progress / 2);
+  particle.position.x = Math.cos(angle) * radius;
+  particle.position.y = Math.sin(angle) * radius;
+  // Removal happens beyond every screen edge, never as an on-screen clearing fade.
+  if (progress >= 1) particle.remaining = 0;
 }
 
 function getDustHeatRadius(view) {
@@ -226,8 +258,8 @@ function collectDust(particle, pixelsPerAU, starRadius) {
     }
   }
   if (!collector) return;
-  // Material already cleared from a fading bundle cannot also feed the seed.
-  collector.material += particle.remaining * particle.diskFraction;
+  // Heat loss reduces the material contributed; outward clearing does not fade it.
+  collector.material += particle.remaining;
   collector.collected++;
   particle.remaining = 0;
   // This first growth test transfers material without changing the seed's velocity.
@@ -307,7 +339,8 @@ function createDustParticle(position) {
     dragCoupling = random(3, 8);
   }
   // Initial conditions only: gravity and gas drag determine subsequent motion.
-  const clearingStart = random(0, 0.65);
+  const departureAt = random(DISK_CLEARING_START_SECONDS, LAST_DUST_DEPARTURE_SECONDS);
+  const clearingEnd = DISK_CLEARING_START_SECONDS + DISK_CLEARING_DURATION_SECONDS;
   return {
     position,
     velocity,
@@ -315,11 +348,10 @@ function createDustParticle(position) {
     dragCoupling,
     opacity: random(0.25, 0.75),
     remaining: 1,
-    diskFraction: 1,
-    // Varied responses to one shared clearing phase, not independent death timers.
-    clearingStart,
-    // Stagger the final fades near the three-minute mark; no permanent dust remains.
-    clearingEnd: random(0.85, 1),
+    departureAt,
+    // Leave enough flight time for a gradual exit, with every path finished by 3:00.
+    departureDuration: random(15, Math.min(35, clearingEnd - departureAt)),
+    departure: null,
   };
 }
 
@@ -426,7 +458,7 @@ function draw() {
     const particleY = y + particle.position.y * pixelsPerAU;
     if (particleX < -2 || particleX > width + 2 || particleY < -2 || particleY > height + 2) continue;
     if (Math.hypot(particleX - x, particleY - y) <= radius + particle.size) continue;
-    context.fillStyle = `rgba(218, 204, 181, ${particle.opacity * dustOpacity * particle.remaining * particle.diskFraction})`;
+    context.fillStyle = `rgba(218, 204, 181, ${particle.opacity * dustOpacity * particle.remaining})`;
     context.beginPath();
     context.arc(particleX, particleY, particle.size, 0, Math.PI * 2);
     context.fill();
