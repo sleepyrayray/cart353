@@ -14,6 +14,9 @@ const SEED_MAX_STAR_RATIO = 0.5;
 const SEED_COLOUR_THRESHOLD = 7;
 const MAX_SEEDS = 10;
 const SEED_OUTER_ORBIT_FACTOR = 2;
+// Mild ovalness for variety, not a measured distribution of young planets.
+const SEED_MIN_ECCENTRICITY = 0.03;
+const SEED_MAX_ECCENTRICITY = 0.18;
 const planetColours = [[121, 165, 191], [180, 122, 100], [128, 158, 125], [160, 137, 182]];
 // Compressed disk evolution for the experience, not real astronomical timescales.
 const DISK_CLEARING_START_SECONDS = 90;
@@ -66,7 +69,7 @@ function updateStarSettings() {
 
   const description = getStarDescription(starSettings.mass, starSettings.heavyElements);
   document.getElementById("star-description").textContent = description;
-  describe(`${description} Mass is ${starSettings.mass.toFixed(1)} times the Sun's. Composition is ${starSettings.heavyElements.toFixed(1)} times the Sun's reference abundance. Each reset creates between one and ten seeds with evenly spaced orbital distances. Press Play to reveal the finite dust supply and seeds, which initially look like the other particles. Each seed gently attracts nearby dust and grows only by collecting dust that touches it. Their pull strengthens with growth but is capped. Seeds do not pull on or collide with one another. From one minute thirty seconds, remaining dust departs outward at varied times, leaving the screen by three minutes as gas drag weakens. Dust can also escape or fade near the star. Reset starts fresh. Visible sizes, seed attraction, clearing motion, and time are exaggerated.`);
+  describe(`${description} Mass is ${starSettings.mass.toFixed(1)} times the Sun's. Composition is ${starSettings.heavyElements.toFixed(1)} times the Sun's reference abundance. Each reset creates between one and ten seeds with evenly spaced orbit sizes and slightly oval, differently oriented paths. Some paths can cross, but collisions are not forced. Press Play to reveal the finite dust supply and seeds, which initially look like the other particles. Each seed gently attracts nearby dust and grows by collecting dust that touches it. Their pull on dust strengthens with growth but is capped. Seeds gravitationally affect each other's orbits using masses based on collected material, while the star stays fixed. Seeds merge when their visible edges touch, combining mass and momentum with smooth, capped visual growth. From one minute thirty seconds, remaining dust departs outward at varied times, leaving the screen by three minutes as gas drag weakens. Dust can also escape or fade near the star. Reset starts fresh. Visible sizes, dust attraction, clearing motion, and time are exaggerated.`);
 
   // Both settings define the starting system; don't spawn extra dust mid-run.
   if (!seeds.length || starSettings.mass !== previousMass || starSettings.heavyElements !== previousComposition) resetOrbit();
@@ -105,15 +108,28 @@ function resetOrbit() {
   const startingPhase = random(TWO_PI);
   const seedCount = Math.floor(random(1, MAX_SEEDS + 1));
   seeds = Array.from({ length: seedCount }, (_, index) => {
-    // Equal radial gaps, with a single seed placed midway through the same range.
+    // Equal semi-major-axis gaps; actual distances vary along the oval orbits.
+    // A single seed starts with an orbit size midway through the same range.
     const fraction = seedCount === 1 ? 0.5 : index / (seedCount - 1);
     const factor = 1 + fraction * (SEED_OUTER_ORBIT_FACTOR - 1);
-    const distance = view.seedOrbitBase * factor;
+    const semiMajorAxis = view.seedOrbitBase * factor;
     const phase = startingPhase + index * TWO_PI / seedCount;
-    const speed = Math.sqrt(GRAVITY * starSettings.mass / distance);
+    const eccentricity = random(SEED_MIN_ECCENTRICITY, SEED_MAX_ECCENTRICITY);
+    const orientation = random(TWO_PI);
+    const anomaly = phase - orientation;
+    const semiLatusRectum = semiMajorAxis * (1 - eccentricity ** 2);
+    const distance = semiLatusRectum / (1 + eccentricity * Math.cos(anomaly));
+    // Keplerian initial state, then let mutual gravity evolve it freely.
+    // https://orbital-mechanics.space/classical-orbital-elements/perifocal-frame.html
+    const speedScale = Math.sqrt(GRAVITY * starSettings.mass / semiLatusRectum);
+    const radialSpeed = speedScale * eccentricity * Math.sin(anomaly);
+    const tangentialSpeed = speedScale * (1 + eccentricity * Math.cos(anomaly));
     return {
       position: { x: Math.cos(phase) * distance, y: Math.sin(phase) * distance },
-      velocity: { x: -Math.sin(phase) * speed, y: Math.cos(phase) * speed },
+      velocity: {
+        x: Math.cos(phase) * radialSpeed - Math.sin(phase) * tangentialSpeed,
+        y: Math.sin(phase) * radialSpeed + Math.cos(phase) * tangentialSpeed,
+      },
       material: SEED_STARTING_MATERIAL,
       visibleMaterial: SEED_STARTING_MATERIAL,
       size: random(1.1, 1.5),
@@ -142,12 +158,10 @@ function advanceOrbit(frameSeconds) {
     const clearing = Math.max(0, Math.min(1,
       (diskAgeSeconds - DISK_CLEARING_START_SECONDS) / DISK_CLEARING_DURATION_SECONDS));
     const gasAmount = 1 - smoothProgress(clearing);
-    // Seeds only feel the star: no gas drag, mutual gravity, or mutual collisions.
-    for (const seed of seeds) {
-      if (seed.active) {
-        seed.active = stepOrbitingBody(seed, starSettings.mass, PHYSICS_STEP, surfaceRadius, false);
-      }
-    }
+    // Real mass-scaled mutual gravity, separate from the exaggerated dust pull.
+    // The star remains fixed; visible contact merges seeds, with no seed gas drag.
+    stepSeeds(seeds, starSettings.mass, PHYSICS_STEP, surfaceRadius,
+      () => mergeTouchingSeeds(view));
     const attractors = seeds.filter(seed => seed.active).map(seed => ({
       position: seed.position,
       materialRatio: seed.visibleMaterial / SEED_STARTING_MATERIAL,
@@ -240,6 +254,36 @@ function getSeedRadius(seed, starRadius) {
   return Math.min(grownRadius, starRadius * SEED_MAX_STAR_RATIO);
 }
 
+function mergeTouchingSeeds(view) {
+  // Contact uses the drawn edges, not the larger dust-attraction reach.
+  // Restart after a merge: the new centre of mass might touch a third body.
+  let merged;
+  do {
+    merged = false;
+    for (let i = 0; i < seeds.length && !merged; i++) {
+      if (!seeds[i].active) continue;
+      for (let j = i + 1; j < seeds.length; j++) {
+        if (!seeds[j].active) continue;
+        const first = seeds[i];
+        const second = seeds[j];
+        const firstRadius = getSeedRadius(first, view.radius);
+        const secondRadius = getSeedRadius(second, view.radius);
+        const contactDistance = (firstRadius + secondRadius) / view.pixelsPerAU;
+        if (Math.hypot(first.position.x - second.position.x,
+          first.position.y - second.position.y) > contactDistance) continue;
+        // Preserve the larger visible body so its radius never snaps down on contact.
+        const survivor = firstRadius >= secondRadius ? first : second;
+        const absorbed = survivor === first ? second : first;
+        mergeSeedBodies(survivor, absorbed);
+        if (Math.hypot(survivor.position.x, survivor.position.y)
+          <= view.radius / view.pixelsPerAU) survivor.active = false;
+        merged = true;
+        break;
+      }
+    }
+  } while (merged);
+}
+
 function collectDust(particle, pixelsPerAU, starRadius) {
   // Contact uses exactly the radii drawn on screen, converted to world units.
   // Each dot is one material bundle; heat loss reduces what it can contribute.
@@ -284,7 +328,9 @@ function getSpaceView() {
   const maxBaseRadius = Math.min(100, availableSpace * 0.16) / 2.5 * BODY_VISUAL_SCALE;
   const maxHeatRadius = Math.max(maxBaseRadius / basePixelsPerAU * 2, 0.12 * maxMass ** 1.75);
   const maxSeedOrbitBase = Math.max(1.3, maxHeatRadius * 1.25 + 0.15);
-  const outerOrbit = maxSeedOrbitBase * SEED_OUTER_ORBIT_FACTOR * 1.04;
+  // Include the farthest point of the most oval starting orbit in the camera fit.
+  const outerOrbit = maxSeedOrbitBase * SEED_OUTER_ORBIT_FACTOR
+    * (1 + SEED_MAX_ECCENTRICITY) * 1.04;
   const pixelsPerAU = Math.max(1, Math.min(basePixelsPerAU, availableSpace * 0.4 / outerOrbit));
   return {
     x: (left + width) / 2,
