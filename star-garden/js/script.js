@@ -3,7 +3,7 @@ const starSettings = {
   heavyElements: 1,
 };
 
-const MAX_DUST_COUNT = 4500;
+const MAX_DUST_COUNT = 6750;
 const DUST_FADE_SECONDS = 1.2;
 // Shared display scale for the star and seeds, not a change to their masses.
 const BODY_VISUAL_SCALE = 1.5;
@@ -11,16 +11,31 @@ const SEED_STARTING_MATERIAL = 4;
 const SEED_DUST_RADIUS = 1.1;
 // Display radius for one Earth mass, before the shared visual scale.
 // Deliberately enlarged for readability, not to scale with the star or distances.
-const PLANET_EARTH_MASS_RADIUS = 5;
+const PLANET_EARTH_MASS_RADIUS = 7.5;
 const SEED_GROWTH_SECONDS = 2;
 const SEED_MAX_STAR_RATIO = 0.5;
-const SEED_COLOUR_THRESHOLD = 7;
+const SEED_COLOUR_THRESHOLD = 3;
+// Keep the size transition independent from the earlier colour milestone.
+const SEED_EMERGENCE_MATERIAL = 7;
+const MIN_SEEDS = 3;
 const MAX_SEEDS = 10;
 const SEED_OUTER_ORBIT_FACTOR = 2;
 // Mild ovalness for variety, not a measured distribution of young planets.
 const SEED_MIN_ECCENTRICITY = 0.03;
 const SEED_MAX_ECCENTRICITY = 0.18;
-const planetColours = [[121, 165, 191], [180, 122, 100], [128, 158, 125], [160, 137, 182]];
+// Ten distinct choices, assigned without replacement in each system.
+const planetColours = [
+  [112, 166, 214], // blue
+  [212, 139, 79], // orange
+  [126, 174, 106], // green
+  [166, 129, 207], // purple
+  [209, 111, 116], // red
+  [91, 184, 180], // teal
+  [219, 193, 113], // gold
+  [206, 138, 180], // pink
+  [167, 173, 85], // olive
+  [169, 135, 110], // brown
+];
 // Compressed disk evolution for the experience, not real astronomical timescales.
 const DISK_CLEARING_START_SECONDS = 90;
 const DISK_CLEARING_DURATION_SECONDS = 90;
@@ -74,7 +89,7 @@ function updateStarSettings() {
 
   const description = getStarDescription(starSettings.mass, starSettings.heavyElements);
   document.getElementById("star-description").textContent = description;
-  describe(`${description} Mass is ${starSettings.mass.toFixed(1)} times the Sun's. Composition is ${starSettings.heavyElements.toFixed(1)} times the Sun's reference abundance. Each reset creates between one and ten seeds with evenly spaced orbit sizes and slightly oval, differently oriented paths. Some paths can cross, but collisions are not forced. Press Play to reveal the finite dust supply and seeds, which initially look like the other particles. Each seed gently attracts nearby dust and grows by collecting dust that touches it. Their pull on dust strengthens with growth but is capped. Seeds gravitationally affect each other's orbits using masses based on collected material, while the star stays fixed. Seeds merge when their visible edges touch, combining mass and momentum with smooth, capped visual growth. From one minute thirty seconds, remaining dust departs outward at varied times, leaving the screen by three minutes as gas drag weakens. Dust can also escape or fade near the star. Reset starts fresh. Visible sizes, dust attraction, clearing motion, and time are exaggerated.`);
+  describe(`${description} Mass is ${starSettings.mass.toFixed(1)} times the Sun's. Composition is ${starSettings.heavyElements.toFixed(1)} times the Sun's reference abundance. Each reset creates between ${MIN_SEEDS} and ${MAX_SEEDS} seeds with evenly spaced orbit sizes and slightly oval, differently oriented paths. Some paths can cross, but collisions are not forced. Press Play to reveal the finite dust supply and seeds, which initially look like the other particles. Each seed gently attracts nearby dust and grows by collecting dust that touches it. Their pull on dust strengthens with growth but is capped. Seeds gravitationally affect each other's orbits using masses based on collected material, while the star stays fixed. Seeds merge when their visible edges touch, combining mass and momentum with smooth, capped visual growth. From one minute thirty seconds, remaining dust departs outward at varied times, leaving the screen by three minutes as gas drag weakens. Dust can also escape or fade near the star. Reset starts fresh. Visible sizes, dust attraction, clearing motion, and time are exaggerated.`);
 
   // Both settings define the starting system; don't spawn extra dust mid-run.
   if (!seeds.length || starSettings.mass !== previousMass || starSettings.heavyElements !== previousComposition) resetOrbit();
@@ -113,11 +128,11 @@ function resetOrbit() {
   diskAgeSeconds = 0;
   updateElapsedTime();
   const startingPhase = random(TWO_PI);
-  const seedCount = Math.floor(random(1, MAX_SEEDS + 1));
+  const seedCount = Math.floor(random(MIN_SEEDS, MAX_SEEDS + 1));
+  const availableColours = [...planetColours];
   seeds = Array.from({ length: seedCount }, (_, index) => {
     // Equal semi-major-axis gaps; actual distances vary along the oval orbits.
-    // A single seed starts with an orbit size midway through the same range.
-    const fraction = seedCount === 1 ? 0.5 : index / (seedCount - 1);
+    const fraction = index / (seedCount - 1);
     const factor = 1 + fraction * (SEED_OUTER_ORBIT_FACTOR - 1);
     const semiMajorAxis = view.seedOrbitBase * factor;
     const phase = startingPhase + index * TWO_PI / seedCount;
@@ -140,7 +155,7 @@ function resetOrbit() {
       material: SEED_STARTING_MATERIAL,
       visibleMaterial: SEED_STARTING_MATERIAL,
       opacity: random(0.45, 0.65),
-      planetColour: random(planetColours),
+      planetColour: availableColours.splice(Math.floor(random(availableColours.length)), 1)[0],
       colourProgress: 0,
       collected: 0,
       mergers: 0,
@@ -306,7 +321,7 @@ function getSeedRadius(seed, starRadius) {
   // Start the same size as a dust dot, then smoothly reveal the mass-based scale
   // over the first seven full material bundles. No extra growth just from waiting.
   const acquired = Math.max(0, seed.visibleMaterial - SEED_STARTING_MATERIAL);
-  const emergence = smoothProgress(acquired / SEED_COLOUR_THRESHOLD);
+  const emergence = smoothProgress(acquired / SEED_EMERGENCE_MATERIAL);
   const grownRadius = SEED_DUST_RADIUS + (massRadius - SEED_DUST_RADIUS) * emergence;
   return Math.min(grownRadius, starRadius * SEED_MAX_STAR_RATIO);
 }
@@ -475,7 +490,9 @@ function createDustCloud(view) {
   // This is a visual mapping of solid abundance, not a calibrated disk mass.
   const referenceCount = Math.min(1000,
     (bounds.right - bounds.left) * (bounds.bottom - bounds.top) * dustDensity);
-  const count = Math.min(MAX_DUST_COUNT, Math.round(referenceCount * (1.5 + starSettings.heavyElements)));
+  // 50% more particles at every composition; each bundle still contributes the same mass.
+  const count = Math.min(MAX_DUST_COUNT,
+    Math.round(referenceCount * (1.5 + starSettings.heavyElements) * 1.5));
   const particles = [];
   for (let i = 0; i < count; i++) {
     const position = { x: random(bounds.left, bounds.right), y: random(bounds.top, bounds.bottom) };
@@ -577,7 +594,7 @@ function draw() {
     const seedRadius = getSeedRadius(seed, radius);
     // Start dust-like, then become more opaque only as material is collected.
     const acquired = seed.visibleMaterial - SEED_STARTING_MATERIAL;
-    const seedOpacity = seed.opacity + (1 - seed.opacity) * acquired / (acquired + 12);
+    const seedOpacity = seed.opacity + (1 - seed.opacity) * acquired / (acquired + 4);
     const dustColour = [218, 204, 181];
     const seedColour = dustColour.map((channel, index) =>
       Math.round(channel + (seed.planetColour[index] - channel) * seed.colourProgress)

@@ -1,31 +1,31 @@
-# CART 353 Final Project Plan — Star Garden
+# Star Garden — project notes
 
-For my final project, I plan to create **Star Garden**, a 2D simulation where the user customizes a star and watches a planetary system develop around it. Two sliders will control the star's mass and heavy-element abundance, with numerical values and fixed limits. Its size, colour, and brightness will follow from its properties.
+For CART 353, I'm making a 2D p5.js simulation where someone creates a star and watches planets grow around it. Mass and Composition sliders affect the star and the material around it. I want some randomness too, so the same settings don't always give the same system.
 
-When the user presses Play, particles representing gas and dust will move around the young star. Material will gradually gather into clumps and grow into planets. The star's settings and variations in the surrounding material will influence what forms, so the same settings can still produce different systems. Planets will move under simplified gravity, without visible orbit lines.
+The idea is still based on real planet formation and gravity, but I don't need to follow every detail exactly. I want it to feel more stylized, with sizes, timing, and interactions adjusted so things are actually interesting to watch. Keep the research as a starting point and note anything that's simplified or exaggerated.
 
-The user will be able to pan and zoom to observe their system. Later, incoming objects such as asteroids, comets, rogue planets, or a passing star could create new interactions. These might change orbits, cause impacts, or send a planet out of the system. The behaviour will be based on research, with simplified physics and compressed time to keep the experience manageable.
+## How I picture it
 
-The project will be made with HTML, CSS, JavaScript, and p5.js, with a dark, colourful, glowing visual style. The first version will focus on star customization, particle-based planet formation, orbital movement, and camera controls. Moons and more elaborate encounters can come later. The main goal is to let users discover how their choices and simple rules lead to different systems and unexpected interactions.
+Set up the star, press Play, and watch the formation. Dust is already moving around the star. There are 3–10 seeds that start off looking like dust, then grow and gain their own colours as they collect material. Planets affect each other's orbits and can merge when they touch.
 
-## Development Checklist
+Once all the dust is gone, the planets become clickable. Clicking one shows its mass as a percentage of Earth's mass, distance from the star, and merger count. I want this part to give someone a moment to look at what formed.
 
-1. **Research the basic rules.** Gather references for star properties, planet formation, gravity, and encounters. Decide how to simplify these ideas for the simulation and keep track of the sources.
+After that, they can choose an object and press a button to bring it into the system. No placing objects manually. The object slowly enters from off-screen towards the system, so there's time to notice it coming. Maybe an asteroid, comet, rogue planet, or passing star. Still need to choose which ones to include.
 
-2. **Set up the project.** Create the HTML, CSS, and p5.js files, with a full-screen space canvas and a basic interface.
+Then just watch what happens. Planets might change orbits, crash, merge, or get sent away. Not every encounter needs to cause a disaster. The point is to see how the system reacts. No black holes or anything too complicated for now.
 
-3. **Build star customization.** Add the mass and heavy-element abundance sliders, numerical values, and a star preview that updates with the settings.
+## To do
 
-4. **Get orbital movement working.** Start with a few test bodies and make sure gravity produces stable movement. Add Play, Pause, and Reset controls.
+1. Research as needed. The research notes are saved outside the repo. Refer back to them when adding something new, especially the incoming objects and what they can do.
 
-5. **Add gradual planet formation.** Introduce gas and dust particles that gather into growing bodies. Connect the formation rules to the star settings and allow different results between runs.
+2. Keep the basics working. The project files, star sliders, preview, and Play/Pause/Reset controls are already there.
 
-6. **Add camera controls.** Make pan and zoom work smoothly and frame the developing system so it is easy to follow.
+3. Make formation easier to follow. Growing seeds, shared dust, gravity, and mergers are working. Keep adjusting the pacing and visuals without making it laggy.
 
-7. **Introduce encounters.** Start with one incoming asteroid, then add other researched objects and outcomes as time allows. Make the effects on the system easy to notice.
+4. Make the next stage unlock after the dust is gone. The planet info panel is already there, but clicking planets still needs to be restricted to this stage. The object controls should unlock then too.
 
-8. **Polish and test.** Refine the visuals, interface, and pacing. Try different settings, check performance, and fix problems with formation or orbital stability.
+5. Add one incoming object first. Give it a selection option and a button, then have it gradually arrive from off-screen. Let the interaction happen without forcing a collision.
 
-9. **Finish and publish.** Deploy through GitHub Pages, update the project documentation and references, and prepare the final presentation.
+6. Add more if there's time. More object choices, better visuals, and smoother controls. Pan/zoom, moons, and more detailed planet types can wait until the main experience feels good.
 
-Moons and more elaborate encounters are extras to explore once the core experience works.
+7. Get it ready to present. Check the GitHub Pages version, organize the sources, and prepare the final presentation. Leave the README alone until I'm ready to update it.
