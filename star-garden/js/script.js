@@ -19,7 +19,7 @@ const SEED_COLOUR_THRESHOLD = 3;
 const SEED_EMERGENCE_MATERIAL = 7;
 const MIN_SEEDS = 5;
 const MAX_SEEDS = 12;
-const MAX_VISITORS = 10;
+const MAX_VISITORS = 3;
 const SEED_OUTER_ORBIT_FACTOR = 2;
 // Mild ovalness for variety, not a measured distribution of young planets.
 const SEED_MIN_ECCENTRICITY = 0.03;
@@ -90,11 +90,14 @@ function updateStarSettings() {
   starSettings.heavyElements = Number(document.getElementById("heavy-elements").value);
 
   document.getElementById("mass-value").textContent = `${starSettings.mass.toFixed(1)}× Sun`;
-  document.getElementById("heavy-elements-value").textContent = `${starSettings.heavyElements.toFixed(1)}× Sun`;
+  const dustLevel = starSettings.heavyElements < 0.8 ? "Low"
+    : starSettings.heavyElements > 1.2 ? "High" : "Medium";
+  document.getElementById("heavy-elements-value").textContent = dustLevel;
+  document.getElementById("heavy-elements").setAttribute("aria-valuetext", dustLevel);
 
   const description = getStarDescription(starSettings.mass, starSettings.heavyElements);
   document.getElementById("star-description").textContent = description;
-  describe(`${description} Mass is ${starSettings.mass.toFixed(1)} times the Sun's. Composition is ${starSettings.heavyElements.toFixed(1)} times the Sun's reference abundance. Each reset creates between ${MIN_SEEDS} and ${MAX_SEEDS} seeds with evenly spaced orbit sizes and slightly oval, differently oriented paths. Some paths can cross, but collisions are not forced. Press Play to reveal the finite dust supply and seeds, which initially look like the other particles. Each seed gently attracts nearby dust and grows by collecting dust that touches it. Their pull on dust strengthens with growth but is capped. Seeds gravitationally affect each other's orbits using masses based on collected material, while the star stays fixed. Seeds merge when their visible edges touch, combining mass and momentum with smooth, capped visual growth. From one minute thirty seconds, remaining dust departs outward at varied times, leaving the screen by three minutes as gas drag weakens. Dust can also escape or fade near the star. Reset starts fresh. Visible sizes, dust attraction, clearing motion, and time are exaggerated.`);
+  describe(`${description} Mass is ${starSettings.mass.toFixed(1)} times the Sun's. Dust Particles is set to ${dustLevel.toLowerCase()}. Each reset creates between ${MIN_SEEDS} and ${MAX_SEEDS} seeds with evenly spaced orbit sizes and slightly oval, differently oriented paths. Some paths can cross, but collisions are not forced. Press Play to reveal the finite dust supply and seeds, which initially look like the other particles. Each seed gently attracts nearby dust and grows by collecting dust that touches it. Their pull on dust strengthens with growth but is capped. Seeds gravitationally affect each other's orbits using masses based on collected material, while the star stays fixed. Seeds merge when their visible edges touch, combining mass and momentum with smooth, capped visual growth. From one minute thirty seconds, remaining dust departs outward at varied times, leaving the screen by three minutes as gas drag weakens. Dust can also escape or fade near the star. Reset starts fresh. Visible sizes, dust attraction, clearing motion, and time are exaggerated.`);
 
   // Both settings define the starting system; don't spawn extra dust mid-run.
   if (!seeds.length || starSettings.mass !== previousMass || starSettings.heavyElements !== previousComposition) resetOrbit();
@@ -178,12 +181,13 @@ function addRoguePlanet() {
   // Guard the action as well as the button, including off-screen dust and paused time.
   if (diskAgeSeconds <= 0 || dustParticles.length > 0 || roguePlanets.length >= MAX_VISITORS) return;
   const view = getSpaceView();
-  const angle = random(-HALF_PI, HALF_PI);
+  const angle = random(TWO_PI);
   const radial = { x: Math.cos(angle), y: Math.sin(angle) };
-  // Pick a direction on the right half of the view, clear of the star controls.
+  // Pick any direction around the star so arrivals can come from all screen edges.
   // Start the entire body beyond the screen, with space for a gradual entrance.
   const entryMargin = view.radius * SEED_MAX_STAR_RATIO + 40;
-  const horizontalEdge = radial.x > 0.000001 ? (width - view.x + entryMargin) / radial.x : Infinity;
+  const horizontalEdge = Math.abs(radial.x) > 0.000001
+    ? ((radial.x > 0 ? width - view.x : view.x) + entryMargin) / Math.abs(radial.x) : Infinity;
   const verticalEdge = Math.abs(radial.y) > 0.000001
     ? ((radial.y > 0 ? height - view.y : view.y) + entryMargin) / Math.abs(radial.y) : Infinity;
   const edgeDistance = Math.min(horizontalEdge, verticalEdge) / view.pixelsPerAU;
@@ -205,7 +209,7 @@ function addRoguePlanet() {
   // A stylized 5–30 Earth-mass visitor, not a measured rogue-planet distribution.
   // Keep the same material-to-mass rule and visible-size cap as resident planets.
   const material = random(5, 30) / EARTH_MASSES_PER_MATERIAL_UNIT;
-  // Ten extra palette slots cover twelve residents plus ten visitors. A merged visitor
+  // Extra palette slots cover all residents and visitors. A merged visitor
   // may leave its colour behind, so choose a currently unused colour each time.
   const visitorColour = [
     [244, 92, 45], [185, 74, 212], [62, 207, 127], [244, 145, 30],
