@@ -15,6 +15,7 @@
       <h1>Star Garden</h1>
       <p>Create a star. Watch worlds grow.</p>
     </header>
+    <div class="sidebar">
     <section class="controls" aria-labelledby="controls-title">
       <h2 id="controls-title">Your star</h2>
 
@@ -64,6 +65,15 @@
         </div>
       </div>
     </section>
+    <section id="planet-info" class="planet-info" aria-labelledby="planet-info-title" hidden>
+      <h2 id="planet-info-title">Your planet</h2>
+      <dl>
+        <div><dt>Estimated mass</dt><dd id="planet-mass"></dd></div>
+        <div><dt>Distance from star</dt><dd id="planet-distance"></dd></div>
+        <div><dt>Mergers</dt><dd id="planet-mergers"></dd></div>
+      </dl>
+    </section>
+    </div>
     <main id="space" aria-label="Star Garden simulation"></main>
   </body>
 </html>

@@ -8,7 +8,10 @@ const DUST_FADE_SECONDS = 1.2;
 // Shared display scale for the star and seeds, not a change to their masses.
 const BODY_VISUAL_SCALE = 1.5;
 const SEED_STARTING_MATERIAL = 4;
-const SEED_VISUAL_GROWTH = 2.5;
+const SEED_DUST_RADIUS = 1.1;
+// Display radius for one Earth mass, before the shared visual scale.
+// Deliberately enlarged for readability, not to scale with the star or distances.
+const PLANET_EARTH_MASS_RADIUS = 5;
 const SEED_GROWTH_SECONDS = 2;
 const SEED_MAX_STAR_RATIO = 0.5;
 const SEED_COLOUR_THRESHOLD = 7;
@@ -25,6 +28,7 @@ const LAST_DUST_DEPARTURE_SECONDS = 160;
 
 let dustParticles = [];
 let seeds = [];
+let selectedSeed = null;
 let diskAgeSeconds = 0;
 let dustRevealTime = 0;
 let isPlaying = false;
@@ -44,6 +48,7 @@ const starColours = [
 function setup() {
   const canvas = createCanvas(windowWidth, windowHeight);
   canvas.parent("space");
+  canvas.elt.addEventListener("click", selectPlanet);
   pixelDensity(min(displayDensity(), 2));
   noLoop();
 
@@ -100,6 +105,8 @@ function pauseOrbit() {
 function resetOrbit() {
   isPlaying = false;
   noLoop();
+  selectedSeed = null;
+  updatePlanetInfo();
   const view = getSpaceView();
   // Generate the complete material supply once. Nothing replenishes it mid-run.
   dustParticles = createDustCloud(view);
@@ -132,11 +139,11 @@ function resetOrbit() {
       },
       material: SEED_STARTING_MATERIAL,
       visibleMaterial: SEED_STARTING_MATERIAL,
-      size: random(1.1, 1.5),
       opacity: random(0.45, 0.65),
       planetColour: random(planetColours),
       colourProgress: 0,
       collected: 0,
+      mergers: 0,
       active: true,
     };
   });
@@ -206,6 +213,50 @@ function updateElapsedTime() {
   if (timer.textContent !== elapsed) timer.textContent = elapsed;
 }
 
+function selectPlanet(event) {
+  // Listen only on the canvas so using the controls never changes selection.
+  const bounds = event.currentTarget.getBoundingClientRect();
+  const clickX = (event.clientX - bounds.left) * width / bounds.width;
+  const clickY = (event.clientY - bounds.top) * height / bounds.height;
+  const view = getSpaceView();
+  selectedSeed = null;
+  let closest = Infinity;
+  // Don't select invisible seeds before Play. Allow a small click margin for tiny ones.
+  if (dustRevealTime > 0) {
+    for (const seed of seeds) {
+      if (!seed.active) continue;
+      const x = view.x + seed.position.x * view.pixelsPerAU;
+      const y = view.y + seed.position.y * view.pixelsPerAU;
+      const distance = Math.hypot(clickX - x, clickY - y);
+      if (distance <= Math.max(8, getSeedRadius(seed, view.radius)) && distance < closest) {
+        selectedSeed = seed;
+        closest = distance;
+      }
+    }
+  }
+  updatePlanetInfo();
+  if (!isPlaying) redraw();
+}
+
+function updatePlanetInfo() {
+  if (selectedSeed && !selectedSeed.active) selectedSeed = null;
+  const panel = document.getElementById("planet-info");
+  panel.hidden = !selectedSeed;
+  if (!selectedSeed) return;
+  const seed = selectedSeed;
+  const earthMasses = getSeedMass(seed) / EARTH_MASS_IN_SOLAR_MASSES;
+  const distance = Math.hypot(seed.position.x, seed.position.y);
+  const values = {
+    "planet-mass": `${Number((earthMasses * 100).toFixed(1))}% of Earth’s mass`,
+    "planet-distance": `${distance.toFixed(2)} AU`,
+    "planet-mergers": String(seed.mergers),
+  };
+  for (const [id, value] of Object.entries(values)) {
+    const field = document.getElementById(id);
+    if (field.textContent !== value) field.textContent = value;
+  }
+}
+
 function smoothProgress(amount) {
   const progress = Math.max(0, Math.min(1, amount));
   return progress * progress * (3 - 2 * progress);
@@ -247,10 +298,16 @@ function getDustHeatRadius(view) {
 }
 
 function getSeedRadius(seed, starRadius) {
-  // Exaggerated cube-root visual growth, capped below the displayed star's size.
-  // This is a display mapping, not a physical radius or density calculation.
-  const acquired = seed.visibleMaterial - SEED_STARTING_MATERIAL;
-  const grownRadius = seed.size * Math.cbrt(1 + acquired * SEED_VISUAL_GROWTH) * BODY_VISUAL_SCALE;
+  // One shared mass-to-size mapping: equal masses approach equal visible radii.
+  // Cube-root scaling is a simple common-density assumption, not a composition model.
+  // Ease the material first so dust collection and mergers never snap the size.
+  const visibleEarthMasses = seed.visibleMaterial * EARTH_MASSES_PER_MATERIAL_UNIT;
+  const massRadius = PLANET_EARTH_MASS_RADIUS * Math.cbrt(visibleEarthMasses) * BODY_VISUAL_SCALE;
+  // Start the same size as a dust dot, then smoothly reveal the mass-based scale
+  // over the first seven full material bundles. No extra growth just from waiting.
+  const acquired = Math.max(0, seed.visibleMaterial - SEED_STARTING_MATERIAL);
+  const emergence = smoothProgress(acquired / SEED_COLOUR_THRESHOLD);
+  const grownRadius = SEED_DUST_RADIUS + (massRadius - SEED_DUST_RADIUS) * emergence;
   return Math.min(grownRadius, starRadius * SEED_MAX_STAR_RATIO);
 }
 
@@ -275,6 +332,9 @@ function mergeTouchingSeeds(view) {
         const survivor = firstRadius >= secondRadius ? first : second;
         const absorbed = survivor === first ? second : first;
         mergeSeedBodies(survivor, absorbed);
+        // Count all merger events in the resulting planet's history.
+        survivor.mergers += absorbed.mergers + 1;
+        if (selectedSeed === absorbed) selectedSeed = survivor;
         if (Math.hypot(survivor.position.x, survivor.position.y)
           <= view.radius / view.pixelsPerAU) survivor.active = false;
         merged = true;
@@ -465,6 +525,7 @@ function draw() {
     dustRevealTime = Math.min(DUST_FADE_SECONDS, dustRevealTime + frameSeconds);
     lastFrameTime = now;
   }
+  updatePlanetInfo();
   background("#0b0d16");
 
   // Keep the star clear of the controls, while dust fills the whole canvas.
@@ -525,6 +586,13 @@ function draw() {
     context.beginPath();
     context.arc(seedX, seedY, seedRadius, 0, Math.PI * 2);
     context.fill();
+    if (seed === selectedSeed) {
+      context.strokeStyle = "#f2cf9c";
+      context.lineWidth = 1;
+      context.beginPath();
+      context.arc(seedX, seedY, seedRadius + 4, 0, Math.PI * 2);
+      context.stroke();
+    }
   }
 }
 
