@@ -91,7 +91,8 @@ input[type="range"] {
 
 input[type="range"]:focus-visible,
 .help-button:focus-visible,
-.playback button:focus-visible {
+.playback button:focus-visible,
+.encounter-controls button:focus-visible {
   outline: 2px solid #f2cf9c;
   outline-offset: 5px;
 }
@@ -191,7 +192,8 @@ h3 {
   margin-top: 16px;
 }
 
-.playback button {
+.playback button,
+.encounter-controls button {
   flex: 1;
   padding: 9px 0;
   border: 1px solid #414659;
@@ -203,11 +205,13 @@ h3 {
   cursor: pointer;
 }
 
-.playback button:hover:not(:disabled) {
+.playback button:hover:not(:disabled),
+.encounter-controls button:hover:not(:disabled) {
   border-color: #f2cf9c;
 }
 
-.playback button:disabled {
+.playback button:disabled,
+.encounter-controls button:disabled {
   opacity: 0.4;
   cursor: default;
 }
@@ -231,6 +235,23 @@ h3 {
 
 .elapsed-time {
   font-variant-numeric: tabular-nums;
+}
+
+.encounter-controls {
+  margin-top: 16px;
+  padding: 20px;
+  border: 1px solid #2c3040;
+  border-radius: 12px;
+  background: #121522;
+}
+
+.encounter-controls h2 {
+  margin-bottom: 16px;
+  font-size: 16px;
+}
+
+.encounter-controls button {
+  width: 100%;
 }
 
 .planet-info {
@@ -287,7 +308,8 @@ h3 {
   }
 
   .controls,
-  .planet-info {
+  .planet-info,
+  .encounter-controls {
     padding: 16px;
   }
 

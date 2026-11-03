@@ -17,24 +17,27 @@ const SEED_MAX_STAR_RATIO = 0.5;
 const SEED_COLOUR_THRESHOLD = 3;
 // Keep the size transition independent from the earlier colour milestone.
 const SEED_EMERGENCE_MATERIAL = 7;
-const MIN_SEEDS = 3;
-const MAX_SEEDS = 10;
+const MIN_SEEDS = 5;
+const MAX_SEEDS = 12;
+const MAX_VISITORS = 10;
 const SEED_OUTER_ORBIT_FACTOR = 2;
 // Mild ovalness for variety, not a measured distribution of young planets.
 const SEED_MIN_ECCENTRICITY = 0.03;
 const SEED_MAX_ECCENTRICITY = 0.18;
-// Ten distinct choices, assigned without replacement in each system.
+// Saturated planet colours only, assigned without replacement in each system.
 const planetColours = [
-  [112, 166, 214], // blue
-  [212, 139, 79], // orange
-  [126, 174, 106], // green
-  [166, 129, 207], // purple
-  [209, 111, 116], // red
-  [91, 184, 180], // teal
-  [219, 193, 113], // gold
-  [206, 138, 180], // pink
-  [167, 173, 85], // olive
-  [169, 135, 110], // brown
+  [75, 154, 235], // blue
+  [237, 133, 57], // orange
+  [86, 182, 102], // green
+  [164, 101, 220], // purple
+  [226, 83, 93], // red
+  [46, 190, 165], // teal
+  [235, 188, 49], // gold
+  [224, 100, 171], // pink
+  [163, 194, 52], // lime
+  [193, 108, 51], // copper
+  [103, 102, 222], // indigo
+  [40, 188, 224], // cyan
 ];
 // Compressed disk evolution for the experience, not real astronomical timescales.
 const DISK_CLEARING_START_SECONDS = 90;
@@ -44,6 +47,7 @@ const LAST_DUST_DEPARTURE_SECONDS = 160;
 let dustParticles = [];
 let seeds = [];
 let selectedSeed = null;
+let roguePlanets = [];
 let diskAgeSeconds = 0;
 let dustRevealTime = 0;
 let isPlaying = false;
@@ -72,6 +76,7 @@ function setup() {
   document.getElementById("play").addEventListener("click", playOrbit);
   document.getElementById("pause").addEventListener("click", pauseOrbit);
   document.getElementById("reset").addEventListener("click", resetOrbit);
+  document.getElementById("add-rogue").addEventListener("click", addRoguePlanet);
   document.addEventListener("visibilitychange", () => {
     if (document.hidden && isPlaying) pauseOrbit();
   });
@@ -121,6 +126,7 @@ function resetOrbit() {
   isPlaying = false;
   noLoop();
   selectedSeed = null;
+  roguePlanets = [];
   updatePlanetInfo();
   const view = getSpaceView();
   // Generate the complete material supply once. Nothing replenishes it mid-run.
@@ -168,6 +174,95 @@ function resetOrbit() {
   redraw();
 }
 
+function addRoguePlanet() {
+  // Guard the action as well as the button, including off-screen dust and paused time.
+  if (diskAgeSeconds <= 0 || dustParticles.length > 0 || roguePlanets.length >= MAX_VISITORS) return;
+  const view = getSpaceView();
+  const angle = random(-HALF_PI, HALF_PI);
+  const radial = { x: Math.cos(angle), y: Math.sin(angle) };
+  // Pick a direction on the right half of the view, clear of the star controls.
+  // Start the entire body beyond the screen, with space for a gradual entrance.
+  const entryMargin = view.radius * SEED_MAX_STAR_RATIO + 40;
+  const horizontalEdge = radial.x > 0.000001 ? (width - view.x + entryMargin) / radial.x : Infinity;
+  const verticalEdge = Math.abs(radial.y) > 0.000001
+    ? ((radial.y > 0 ? height - view.y : view.y) + entryMargin) / Math.abs(radial.y) : Infinity;
+  const edgeDistance = Math.min(horizontalEdge, verticalEdge) / view.pixelsPerAU;
+  const residents = seeds.filter(seed => seed.active);
+  const systemRadius = Math.max(view.seedOrbitBase * SEED_OUTER_ORBIT_FACTOR,
+    ...residents.filter(seed => !roguePlanets.includes(seed))
+      .map(seed => Math.hypot(seed.position.x, seed.position.y)));
+  const approachRadius = Math.max(edgeDistance, systemRadius * 1.5);
+  // Unbound Keplerian approach: choose an encounter distance, NOT a target planet.
+  // v² = v_infinity² + 2μ/r; h = q sqrt(v_infinity² + 2μ/q).
+  // https://orbital-mechanics.space/the-orbit-equation/hyperbolic-trajectories.html
+  const mu = GRAVITY * starSettings.mass;
+  const closestApproach = random(0.5, 1.15) * systemRadius;
+  const excessSpeed = random(0.3, 0.7) * Math.sqrt(mu / systemRadius);
+  const angularMomentum = closestApproach * Math.sqrt(excessSpeed ** 2 + 2 * mu / closestApproach);
+  const tangentialSpeed = (random() < 0.5 ? -1 : 1) * angularMomentum / approachRadius;
+  const inwardSpeed = -Math.sqrt(Math.max(0,
+    excessSpeed ** 2 + 2 * mu / approachRadius - tangentialSpeed ** 2));
+  // A stylized 5–30 Earth-mass visitor, not a measured rogue-planet distribution.
+  // Keep the same material-to-mass rule and visible-size cap as resident planets.
+  const material = random(5, 30) / EARTH_MASSES_PER_MATERIAL_UNIT;
+  // Ten extra palette slots cover twelve residents plus ten visitors. A merged visitor
+  // may leave its colour behind, so choose a currently unused colour each time.
+  const visitorColour = [
+    [244, 92, 45], [185, 74, 212], [62, 207, 127], [244, 145, 30],
+    [235, 65, 140], [125, 210, 45], [35, 155, 132], [72, 109, 225],
+    [214, 69, 210], [240, 201, 69], ...planetColours,
+  ].find(rgb =>
+    !residents.some(seed => seed.planetColour.every((channel, index) => channel === rgb[index])));
+  const roguePlanet = {
+    position: { x: radial.x * approachRadius, y: radial.y * approachRadius },
+    velocity: {
+      x: radial.x * inwardSpeed - radial.y * tangentialSpeed,
+      y: radial.y * inwardSpeed + radial.x * tangentialSpeed,
+    },
+    material,
+    visibleMaterial: material,
+    // Compress the visitor mass range into visible variety instead of every body
+    // hitting the same cap. This is a stylized display scale, not a density model.
+    visualSizeScale: 0.45 + 0.55 * (material * EARTH_MASSES_PER_MATERIAL_UNIT - 5) / 25,
+    opacity: 1,
+    planetColour: visitorColour,
+    colourProgress: 1,
+    mature: true,
+    collected: 0,
+    mergers: 0,
+    active: true,
+    hasEnteredView: false,
+    escapeRadius: approachRadius * 1.25,
+  };
+  roguePlanets.push(roguePlanet);
+  seeds = [...residents, roguePlanet];
+  updateEncounter();
+  if (!isPlaying) redraw();
+}
+
+function updateEncounter() {
+  const view = getSpaceView();
+  for (const body of roguePlanets) {
+    const x = view.x + body.position.x * view.pixelsPerAU;
+    const y = view.y + body.position.y * view.pixelsPerAU;
+    const radius = getSeedRadius(body, view.radius);
+    const outside = x + radius < 0 || x - radius > width || y + radius < 0 || y - radius > height;
+    if (!outside) body.hasEnteredView = true;
+    const movingOutward = body.position.x * body.velocity.x + body.position.y * body.velocity.y > 0;
+    // Remove only a distant, outbound, unbound visitor. Off-screen bound bodies
+    // remain simulated and occupy a visitor slot; never steer or teleport them.
+    if (body.active && outside && movingOutward
+      && Math.hypot(body.position.x, body.position.y) > body.escapeRadius
+      && getOrbitalPeriod(body, starSettings.mass) === null) {
+      body.active = false;
+    }
+  }
+  roguePlanets = roguePlanets.filter(body => body.active);
+  const locked = diskAgeSeconds <= 0 || dustParticles.length > 0;
+  document.getElementById("encounter-panel").hidden = locked;
+  document.getElementById("add-rogue").disabled = locked || roguePlanets.length >= MAX_VISITORS;
+}
+
 function advanceOrbit(frameSeconds) {
   // Fixed physics steps keep the orbits independent of drawing speed.
   // Cap long stalls instead of making the dust leap forward after them.
@@ -211,7 +306,7 @@ function advanceOrbit(frameSeconds) {
     const colourBlend = -Math.expm1(-PHYSICS_STEP / YEARS_PER_SECOND / 2);
     for (const seed of seeds) {
       seed.visibleMaterial += (seed.material - seed.visibleMaterial) * growthBlend;
-      const colourTarget = seed.collected >= SEED_COLOUR_THRESHOLD ? 1 : 0;
+      const colourTarget = seed.mature || seed.collected >= SEED_COLOUR_THRESHOLD ? 1 : 0;
       seed.colourProgress += (colourTarget - seed.colourProgress) * colourBlend;
     }
     timeAccumulator = Math.max(0, timeAccumulator - PHYSICS_STEP);
@@ -236,7 +331,8 @@ function selectPlanet(event) {
   const view = getSpaceView();
   selectedSeed = null;
   let closest = Infinity;
-  // Don't select invisible seeds before Play. Allow a small click margin for tiny ones.
+  // Any revealed planet can be selected, including during formation or while paused.
+  // Allow a small click margin for tiny seeds; don't select invisible ones before Play.
   if (dustRevealTime > 0) {
     for (const seed of seeds) {
       if (!seed.active) continue;
@@ -259,12 +355,11 @@ function updatePlanetInfo() {
   panel.hidden = !selectedSeed;
   if (!selectedSeed) return;
   const seed = selectedSeed;
-  const earthMasses = getSeedMass(seed) / EARTH_MASS_IN_SOLAR_MASSES;
   const distance = Math.hypot(seed.position.x, seed.position.y);
+  const period = getOrbitalPeriod(seed, starSettings.mass);
   const values = {
-    "planet-mass": `${Number((earthMasses * 100).toFixed(1))}% of Earth’s mass`,
     "planet-distance": `${distance.toFixed(2)} AU`,
-    "planet-mergers": String(seed.mergers),
+    "planet-year": period === null ? "No closed orbit" : `${Math.round(period * 100)}% of Earth’s`,
   };
   for (const [id, value] of Object.entries(values)) {
     const field = document.getElementById(id);
@@ -313,7 +408,7 @@ function getDustHeatRadius(view) {
 }
 
 function getSeedRadius(seed, starRadius) {
-  // One shared mass-to-size mapping: equal masses approach equal visible radii.
+  // Shared mass-to-size mapping, with a compressed display scale for large visitors.
   // Cube-root scaling is a simple common-density assumption, not a composition model.
   // Ease the material first so dust collection and mergers never snap the size.
   const visibleEarthMasses = seed.visibleMaterial * EARTH_MASSES_PER_MATERIAL_UNIT;
@@ -323,7 +418,7 @@ function getSeedRadius(seed, starRadius) {
   const acquired = Math.max(0, seed.visibleMaterial - SEED_STARTING_MATERIAL);
   const emergence = smoothProgress(acquired / SEED_EMERGENCE_MATERIAL);
   const grownRadius = SEED_DUST_RADIUS + (massRadius - SEED_DUST_RADIUS) * emergence;
-  return Math.min(grownRadius, starRadius * SEED_MAX_STAR_RATIO);
+  return Math.min(grownRadius, starRadius * SEED_MAX_STAR_RATIO) * (seed.visualSizeScale ?? 1);
 }
 
 function mergeTouchingSeeds(view) {
@@ -349,6 +444,16 @@ function mergeTouchingSeeds(view) {
         mergeSeedBodies(survivor, absorbed);
         // Count all merger events in the resulting planet's history.
         survivor.mergers += absorbed.mergers + 1;
+        const mergingVisitors = roguePlanets.filter(body => body === first || body === second);
+        if (mergingVisitors.length > 0) {
+          // Keep the rogue identity even when the resident is the surviving object.
+          // Two visitors merging occupy one slot; a visitor + resident still occupy one.
+          survivor.mature = true;
+          survivor.hasEnteredView = mergingVisitors.some(body => body.hasEnteredView);
+          survivor.escapeRadius = Math.max(...mergingVisitors.map(body => body.escapeRadius));
+          roguePlanets = roguePlanets.filter(body => body !== first && body !== second);
+          roguePlanets.push(survivor);
+        }
         if (selectedSeed === absorbed) selectedSeed = survivor;
         if (Math.hypot(survivor.position.x, survivor.position.y)
           <= view.radius / view.pixelsPerAU) survivor.active = false;
@@ -542,6 +647,7 @@ function draw() {
     dustRevealTime = Math.min(DUST_FADE_SECONDS, dustRevealTime + frameSeconds);
     lastFrameTime = now;
   }
+  updateEncounter();
   updatePlanetInfo();
   background("#0b0d16");
 
@@ -603,6 +709,12 @@ function draw() {
     context.beginPath();
     context.arc(seedX, seedY, seedRadius, 0, Math.PI * 2);
     context.fill();
+    if (roguePlanets.includes(seed)) {
+      context.font = "12px Arial, sans-serif";
+      context.textAlign = "center";
+      context.fillStyle = "#dce2ed";
+      context.fillText("Rogue planet", seedX, seedY - seedRadius - 8);
+    }
     if (seed === selectedSeed) {
       context.strokeStyle = "#f2cf9c";
       context.lineWidth = 1;

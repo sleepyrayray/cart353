@@ -19,6 +19,24 @@ function getSeedMass(seed) {
   return seed.material * EARTH_MASSES_PER_MATERIAL_UNIT * EARTH_MASS_IN_SOLAR_MASSES;
 }
 
+function getOrbitalPeriod(body, starMass) {
+  // Instantaneous two-body estimate around the fixed star, in model years.
+  // Vis-viva: 1/a = 2/r - v²/μ. Use a, not the changing distance on an oval orbit.
+  // https://spsweb.fltops.jpl.nasa.gov/portaldataops/mpg/MPG_Docs/MPG%20Book/Release/Chapter7-OrbitalMechanics.pdf
+  const distance = Math.hypot(body.position.x, body.position.y);
+  const speedSquared = body.velocity.x ** 2 + body.velocity.y ** 2;
+  const mu = GRAVITY * starMass;
+  if (distance <= 0 || mu <= 0) return null;
+  const inverseAxis = 2 / distance - speedSquared / mu;
+  // An unbound trajectory has no repeating year around this star.
+  if (!Number.isFinite(inverseAxis) || inverseAxis <= 0) return null;
+  const semiMajorAxis = 1 / inverseAxis;
+  // Kepler: T = 2π sqrt(a³/μ). These units give Earth a one-year reference.
+  // https://science.nasa.gov/solar-system/orbits-and-keplers-laws/
+  const period = 2 * Math.PI * Math.sqrt(semiMajorAxis ** 3 / mu);
+  return Number.isFinite(period) ? period : null;
+}
+
 function getSeedAccelerations(bodies, starMass) {
   const accelerations = bodies.map(body => body.active
     ? getGravityAcceleration(body.position, starMass) : { x: 0, y: 0 });
