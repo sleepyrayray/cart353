@@ -17,10 +17,13 @@ const SEED_MAX_STAR_RATIO = 0.5;
 const SEED_COLOUR_THRESHOLD = 3;
 // Keep the size transition independent from the earlier colour milestone.
 const SEED_EMERGENCE_MATERIAL = 7;
-const MIN_SEEDS = 5;
-const MAX_SEEDS = 12;
+const MIN_SEEDS = 15;
+const MAX_SEEDS = 20;
 const MAX_VISITORS = 3;
-const SEED_OUTER_ORBIT_FACTOR = 2;
+const SEED_INNER_ORBIT_FACTOR = 1.15;
+const SEED_OUTER_ORBIT_FACTOR = 5.2;
+// Stagger adjacent orbits around the star instead of lining them up at reset.
+const SEED_PHASE_STEP = Math.PI * (3 - Math.sqrt(5));
 // Mild ovalness for variety, not a measured distribution of young planets.
 const SEED_MIN_ECCENTRICITY = 0.03;
 const SEED_MAX_ECCENTRICITY = 0.18;
@@ -38,6 +41,14 @@ const planetColours = [
   [193, 108, 51], // copper
   [103, 102, 222], // indigo
   [40, 188, 224], // cyan
+  [203, 58, 126], // raspberry
+  [39, 150, 92], // jade
+  [97, 189, 237], // sky blue
+  [116, 68, 188], // violet
+  [218, 209, 57], // lemon
+  [215, 105, 65], // terracotta
+  [73, 219, 193], // aqua
+  [174, 54, 80], // cranberry
 ];
 // Compressed disk evolution for the experience, not real astronomical timescales.
 const DISK_CLEARING_START_SECONDS = 90;
@@ -97,7 +108,7 @@ function updateStarSettings() {
 
   const description = getStarDescription(starSettings.mass, starSettings.heavyElements);
   document.getElementById("star-description").textContent = description;
-  describe(`${description} Mass is ${starSettings.mass.toFixed(1)} times the Sun's. Dust Particles is set to ${dustLevel.toLowerCase()}. Each reset creates between ${MIN_SEEDS} and ${MAX_SEEDS} seeds with evenly spaced orbit sizes and slightly oval, differently oriented paths. Some paths can cross, but collisions are not forced. Press Play to reveal the finite dust supply and seeds, which initially look like the other particles. Each seed gently attracts nearby dust and grows by collecting dust that touches it. Their pull on dust strengthens with growth but is capped. Seeds gravitationally affect each other's orbits using masses based on collected material, while the star stays fixed. Seeds merge when their visible edges touch, combining mass and momentum with smooth, capped visual growth. From one minute thirty seconds, remaining dust departs outward at varied times, leaving the screen by three minutes as gas drag weakens. Dust can also escape or fade near the star. Reset starts fresh. Visible sizes, dust attraction, clearing motion, and time are exaggerated.`);
+  describe(`${description} Mass is ${starSettings.mass.toFixed(1)} times the Sun's. Dust Particles is set to ${dustLevel.toLowerCase()}. Each reset creates between ${MIN_SEEDS} and ${MAX_SEEDS} seeds with orbit sizes spread across a wide band and slightly oval, differently oriented paths. Some paths can cross, but collisions are not forced. Press Play to reveal the finite dust supply and seeds, which initially look like the other particles. Each seed gently attracts nearby dust and grows by collecting dust that touches it. Their pull on dust strengthens with growth but is capped. Seeds gravitationally affect each other's orbits using masses based on collected material, while the star stays fixed. Seeds merge when their visible edges touch, combining mass and momentum with smooth, capped visual growth. From one minute thirty seconds, remaining dust departs outward at varied times, leaving the screen by three minutes as gas drag weakens. Dust can also escape or fade near the star. Reset starts fresh. Visible sizes, dust attraction, clearing motion, and time are exaggerated.`);
 
   // Both settings define the starting system; don't spawn extra dust mid-run.
   if (!seeds.length || starSettings.mass !== previousMass || starSettings.heavyElements !== previousComposition) resetOrbit();
@@ -140,11 +151,13 @@ function resetOrbit() {
   const seedCount = Math.floor(random(MIN_SEEDS, MAX_SEEDS + 1));
   const availableColours = [...planetColours];
   seeds = Array.from({ length: seedCount }, (_, index) => {
-    // Equal semi-major-axis gaps; actual distances vary along the oval orbits.
+    // Give each starting orbit a similar share of the band area, so the more
+    // spacious outer part gets more planets than the crowded inner part.
     const fraction = index / (seedCount - 1);
-    const factor = 1 + fraction * (SEED_OUTER_ORBIT_FACTOR - 1);
-    const semiMajorAxis = view.seedOrbitBase * factor;
-    const phase = startingPhase + index * TWO_PI / seedCount;
+    const innerSquared = view.innerSeedOrbit ** 2;
+    const outerSquared = view.outerSeedOrbit ** 2;
+    const semiMajorAxis = Math.sqrt(innerSquared + fraction * (outerSquared - innerSquared));
+    const phase = startingPhase + index * SEED_PHASE_STEP;
     const eccentricity = random(SEED_MIN_ECCENTRICITY, SEED_MAX_ECCENTRICITY);
     const orientation = random(TWO_PI);
     const anomaly = phase - orientation;
@@ -192,7 +205,7 @@ function addRoguePlanet() {
     ? ((radial.y > 0 ? height - view.y : view.y) + entryMargin) / Math.abs(radial.y) : Infinity;
   const edgeDistance = Math.min(horizontalEdge, verticalEdge) / view.pixelsPerAU;
   const residents = seeds.filter(seed => seed.active);
-  const systemRadius = Math.max(view.seedOrbitBase * SEED_OUTER_ORBIT_FACTOR,
+  const systemRadius = Math.max(view.outerSeedOrbit,
     ...residents.filter(seed => !roguePlanets.includes(seed))
       .map(seed => Math.hypot(seed.position.x, seed.position.y)));
   const approachRadius = Math.max(edgeDistance, systemRadius * 1.5);
@@ -506,22 +519,29 @@ function getSpaceView() {
   const baseRadius = Math.min(100, availableSpace * 0.16) * (0.3 + 0.7 * amount ** 0.6) / 2.5 * BODY_VISUAL_SCALE;
   const heatRadius = Math.max(baseRadius / basePixelsPerAU * 2, 0.12 * starSettings.mass ** 1.75);
   const seedOrbitBase = Math.max(1.3, heatRadius * 1.25 + 0.15);
-  // Fit the largest supported system at every mass, rather than zooming out as
-  // mass increases. Otherwise the camera can make a growing star appear to shrink.
+  // Keep the original camera scale across star masses. Widen the starting orbits
+  // within that view so the extra space isn't lost to a matching zoom-out.
   const maxMass = starColours[starColours.length - 1].mass;
   const maxBaseRadius = Math.min(100, availableSpace * 0.16) / 2.5 * BODY_VISUAL_SCALE;
   const maxHeatRadius = Math.max(maxBaseRadius / basePixelsPerAU * 2, 0.12 * maxMass ** 1.75);
   const maxSeedOrbitBase = Math.max(1.3, maxHeatRadius * 1.25 + 0.15);
-  // Include the farthest point of the most oval starting orbit in the camera fit.
-  const outerOrbit = maxSeedOrbitBase * SEED_OUTER_ORBIT_FACTOR
+  const cameraReferenceOrbit = maxSeedOrbitBase * 2
     * (1 + SEED_MAX_ECCENTRICITY) * 1.04;
-  const pixelsPerAU = Math.max(1, Math.min(basePixelsPerAU, availableSpace * 0.4 / outerOrbit));
+  const pixelsPerAU = Math.max(1, Math.min(basePixelsPerAU, availableSpace * 0.4 / cameraReferenceOrbit));
+  const radius = baseRadius * pixelsPerAU / basePixelsPerAU;
+  // Use the free area up to the edge, reserving room for the oval's farthest
+  // point and a fully grown planet. Keep a usable band in very small views.
+  const visibleOrbitLimit = (availableSpace * 0.5 - radius * SEED_MAX_STAR_RATIO - 4)
+    / (pixelsPerAU * (1 + SEED_MAX_ECCENTRICITY));
+  const outerSeedOrbit = Math.min(seedOrbitBase * SEED_OUTER_ORBIT_FACTOR,
+    Math.max(seedOrbitBase * 2, visibleOrbitLimit));
   return {
     x: (left + width) / 2,
     y: (top + bottom) / 2,
     pixelsPerAU,
-    radius: baseRadius * pixelsPerAU / basePixelsPerAU,
-    seedOrbitBase,
+    radius,
+    innerSeedOrbit: seedOrbitBase * SEED_INNER_ORBIT_FACTOR,
+    outerSeedOrbit,
   };
 }
 

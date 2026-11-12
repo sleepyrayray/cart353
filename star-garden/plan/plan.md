@@ -6,7 +6,7 @@ The idea is still based on real planet formation and gravity, but I don't need t
 
 ## How I picture it
 
-Set up the star, press Play, and watch the formation. Dust is already moving around the star, both on-screen and off-screen. There are 5–12 starting seeds, though mergers or falling into the star can leave fewer planets. They start dust-sized and grow smoothly as material actually touches them. Gravity can change their slightly oval orbits, and visible contact makes them merge. No breaking apart or separate crash effects yet.
+Set up the star, press Play, and watch the formation. Dust is already moving around the star, both on-screen and off-screen. Start with 15–20 seeds across a wide band, with more orbits in the roomier outer area. Neighbouring orbits start at different angles so they don't bunch up right away. They start dust-sized and grow smoothly as material actually touches them. Gravity can change their slightly oval orbits, and they can merge on contact or fall into the star, leaving fewer planets. No breaking apart or separate crash effects yet.
 
 Keep planets colourful, with no repeated colours among active bodies and no white, grey, or glowing planets. Colour starts appearing after three dust particles are collected. Sizes follow a stylized mass-based scale, with a cap at half the star's size. The star stays fixed.
 
