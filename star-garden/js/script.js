@@ -190,38 +190,68 @@ function resetOrbit() {
   redraw();
 }
 
+function getRoguePlayBounds() {
+  const sidebar = document.querySelector(".sidebar").getBoundingClientRect();
+  const compact = width <= 640;
+  // Use the current canvas edges that frame the visible space, not the area
+  // behind the sidebar. In a compact layout, the controls sit below the space.
+  const left = compact ? 0 : sidebar.right;
+  const bottom = compact && sidebar.top > 0 ? sidebar.top : height;
+  const headerBottom = document.querySelector(".intro").getBoundingClientRect().bottom;
+  const top = compact && headerBottom < bottom ? headerBottom : 0;
+  return { left, right: width, top, bottom };
+}
+
+function getRogueEntryPoint(radius) {
+  const { left, right, top, bottom } = getRoguePlayBounds();
+  // Start with the entire disk hidden and only a two-pixel gap before it enters.
+  const offset = radius + 2;
+  const cornerInset = Math.min(Math.max(24, radius * 2), (right - left) / 4, (bottom - top) / 4);
+  const edge = Math.floor(random(4));
+  return {
+    x: edge === 0 ? left - offset : edge === 1 ? right + offset : random(left + cornerInset, right - cornerInset),
+    y: edge === 2 ? top - offset : edge === 3 ? bottom + offset : random(top + cornerInset, bottom - cornerInset),
+    inwardX: edge === 0 ? 1 : edge === 1 ? -1 : 0,
+    inwardY: edge === 2 ? 1 : edge === 3 ? -1 : 0,
+  };
+}
+
 function addRoguePlanet() {
   // Guard the action as well as the button, including off-screen dust and paused time.
   if (diskAgeSeconds <= 0 || dustParticles.length > 0 || roguePlanets.length >= MAX_VISITORS) return;
   const view = getSpaceView();
-  const angle = random(TWO_PI);
-  const radial = { x: Math.cos(angle), y: Math.sin(angle) };
-  // Pick any direction around the star so arrivals can come from all screen edges.
-  // Start the entire body beyond the screen, with space for a gradual entrance.
-  const entryMargin = view.radius * SEED_MAX_STAR_RATIO + 40;
-  const horizontalEdge = Math.abs(radial.x) > 0.000001
-    ? ((radial.x > 0 ? width - view.x : view.x) + entryMargin) / Math.abs(radial.x) : Infinity;
-  const verticalEdge = Math.abs(radial.y) > 0.000001
-    ? ((radial.y > 0 ? height - view.y : view.y) + entryMargin) / Math.abs(radial.y) : Infinity;
-  const edgeDistance = Math.min(horizontalEdge, verticalEdge) / view.pixelsPerAU;
+  // A stylized 5–30 Earth-mass visitor, with a compressed display scale.
+  const earthMasses = random(5, 30);
+  const material = earthMasses / EARTH_MASSES_PER_MATERIAL_UNIT;
+  const visualSizeScale = 0.45 + 0.55 * (earthMasses - 5) / 25;
+  const entry = getRogueEntryPoint(getSeedRadius({ visibleMaterial: material, visualSizeScale }, view.radius));
+  const position = {
+    x: (entry.x - view.x) / view.pixelsPerAU,
+    y: (entry.y - view.y) / view.pixelsPerAU,
+  };
+  const approachRadius = Math.hypot(position.x, position.y);
+  if (approachRadius <= view.radius / view.pixelsPerAU) return;
+  const radial = { x: position.x / approachRadius, y: position.y / approachRadius };
   const residents = seeds.filter(seed => seed.active);
   const systemRadius = Math.max(view.outerSeedOrbit,
     ...residents.filter(seed => !roguePlanets.includes(seed))
       .map(seed => Math.hypot(seed.position.x, seed.position.y)));
-  const approachRadius = Math.max(edgeDistance, systemRadius * 1.5);
   // Unbound Keplerian approach: choose an encounter distance, NOT a target planet.
   // v² = v_infinity² + 2μ/r; h = q sqrt(v_infinity² + 2μ/q).
   // https://orbital-mechanics.space/the-orbit-equation/hyperbolic-trajectories.html
   const mu = GRAVITY * starSettings.mass;
-  const closestApproach = random(0.5, 1.15) * systemRadius;
+  // A viewport edge can be inside the outer orbits. Keep the planned closest
+  // approach inside the spawn radius so the visitor still starts moving inward.
+  const closestApproach = random(0.5, 1.15) * Math.min(systemRadius, approachRadius * 0.8);
   const excessSpeed = random(0.3, 0.7) * Math.sqrt(mu / systemRadius);
   const angularMomentum = closestApproach * Math.sqrt(excessSpeed ** 2 + 2 * mu / closestApproach);
-  const tangentialSpeed = (random() < 0.5 ? -1 : 1) * angularMomentum / approachRadius;
+  let tangentialSpeed = (random() < 0.5 ? -1 : 1) * angularMomentum / approachRadius;
   const inwardSpeed = -Math.sqrt(Math.max(0,
     excessSpeed ** 2 + 2 * mu / approachRadius - tangentialSpeed ** 2));
-  // A stylized 5–30 Earth-mass visitor, not a measured rogue-planet distribution.
-  // Keep the same material-to-mass rule and visible-size cap as resident planets.
-  const material = random(5, 30) / EARTH_MASSES_PER_MATERIAL_UNIT;
+  // Avoid a grazing launch that barely moves across the entry edge.
+  const normalInwardSpeed = inwardSpeed * (radial.x * entry.inwardX + radial.y * entry.inwardY);
+  const tangentNormal = -radial.y * entry.inwardX + radial.x * entry.inwardY;
+  if (tangentialSpeed * tangentNormal < -normalInwardSpeed * 0.5) tangentialSpeed *= -1;
   // Extra palette slots cover all residents and visitors. A merged visitor
   // may leave its colour behind, so choose a currently unused colour each time.
   const visitorColour = [
@@ -231,16 +261,14 @@ function addRoguePlanet() {
   ].find(rgb =>
     !residents.some(seed => seed.planetColour.every((channel, index) => channel === rgb[index])));
   const roguePlanet = {
-    position: { x: radial.x * approachRadius, y: radial.y * approachRadius },
+    position,
     velocity: {
       x: radial.x * inwardSpeed - radial.y * tangentialSpeed,
       y: radial.y * inwardSpeed + radial.x * tangentialSpeed,
     },
     material,
     visibleMaterial: material,
-    // Compress the visitor mass range into visible variety instead of every body
-    // hitting the same cap. This is a stylized display scale, not a density model.
-    visualSizeScale: 0.45 + 0.55 * (material * EARTH_MASSES_PER_MATERIAL_UNIT - 5) / 25,
+    visualSizeScale,
     opacity: 1,
     planetColour: visitorColour,
     colourProgress: 1,
@@ -248,8 +276,8 @@ function addRoguePlanet() {
     collected: 0,
     mergers: 0,
     active: true,
-    hasEnteredView: false,
-    escapeRadius: approachRadius * 1.25,
+    entering: true,
+    escapeRadius: Math.max(approachRadius, systemRadius * 1.5) * 1.25,
   };
   roguePlanets.push(roguePlanet);
   seeds = [...residents, roguePlanet];
@@ -264,7 +292,6 @@ function updateEncounter() {
     const y = view.y + body.position.y * view.pixelsPerAU;
     const radius = getSeedRadius(body, view.radius);
     const outside = x + radius < 0 || x - radius > width || y + radius < 0 || y - radius > height;
-    if (!outside) body.hasEnteredView = true;
     const movingOutward = body.position.x * body.velocity.x + body.position.y * body.velocity.y > 0;
     // Remove only a distant, outbound, unbound visitor. Off-screen bound bodies
     // remain simulated and occupy a visitor slot; never steer or teleport them.
@@ -351,12 +378,17 @@ function selectPlanet(event) {
   // Any revealed planet can be selected, including during formation or while paused.
   // Allow a small click margin for tiny seeds; don't select invisible ones before Play.
   if (dustRevealTime > 0) {
+    const entryBounds = roguePlanets.some(body => body.entering) ? getRoguePlayBounds() : null;
     for (const seed of seeds) {
       if (!seed.active) continue;
+      if (seed.entering && (clickX < entryBounds.left || clickX > entryBounds.right
+        || clickY < entryBounds.top || clickY > entryBounds.bottom)) continue;
       const x = view.x + seed.position.x * view.pixelsPerAU;
       const y = view.y + seed.position.y * view.pixelsPerAU;
       const distance = Math.hypot(clickX - x, clickY - y);
-      if (distance <= Math.max(8, getSeedRadius(seed, view.radius)) && distance < closest) {
+      const radius = getSeedRadius(seed, view.radius);
+      const targetRadius = seed.entering ? radius : Math.max(8, radius);
+      if (distance <= targetRadius && distance < closest) {
         selectedSeed = seed;
         closest = distance;
       }
@@ -466,7 +498,7 @@ function mergeTouchingSeeds(view) {
           // Keep the rogue identity even when the resident is the surviving object.
           // Two visitors merging occupy one slot; a visitor + resident still occupy one.
           survivor.mature = true;
-          survivor.hasEnteredView = mergingVisitors.some(body => body.hasEnteredView);
+          survivor.entering = mergingVisitors.length === 2 && mergingVisitors.every(body => body.entering);
           survivor.escapeRadius = Math.max(...mergingVisitors.map(body => body.escapeRadius));
           roguePlanets = roguePlanets.filter(body => body !== first && body !== second);
           roguePlanets.push(survivor);
@@ -717,11 +749,24 @@ function draw() {
     context.arc(particleX, particleY, particle.size, 0, Math.PI * 2);
     context.fill();
   }
+  const entryBounds = roguePlanets.some(body => body.entering) ? getRoguePlayBounds() : null;
   for (const seed of seeds) {
     if (!seed.active) continue;
     const seedX = x + seed.position.x * pixelsPerAU;
     const seedY = y + seed.position.y * pixelsPerAU;
     const seedRadius = getSeedRadius(seed, radius);
+    if (seed.entering) {
+      const { left, right, top, bottom } = entryBounds;
+      seed.entering = seedX - seedRadius < left || seedX + seedRadius > right
+        || seedY - seedRadius < top || seedY + seedRadius > bottom;
+      if (seed.entering) {
+        // Reveal only the part that has crossed the edge, including edges masked by UI.
+        context.save();
+        context.beginPath();
+        context.rect(left, top, right - left, bottom - top);
+        context.clip();
+      }
+    }
     // Start dust-like, then become more opaque only as material is collected.
     const acquired = seed.visibleMaterial - SEED_STARTING_MATERIAL;
     const seedOpacity = seed.opacity + (1 - seed.opacity) * acquired / (acquired + 4);
@@ -733,7 +778,7 @@ function draw() {
     context.beginPath();
     context.arc(seedX, seedY, seedRadius, 0, Math.PI * 2);
     context.fill();
-    if (roguePlanets.includes(seed)) {
+    if (!seed.entering && roguePlanets.includes(seed)) {
       context.font = "12px Arial, sans-serif";
       context.textAlign = "center";
       context.fillStyle = "#dce2ed";
@@ -746,6 +791,7 @@ function draw() {
       context.arc(seedX, seedY, seedRadius + 4, 0, Math.PI * 2);
       context.stroke();
     }
+    if (seed.entering) context.restore();
   }
 }
 
