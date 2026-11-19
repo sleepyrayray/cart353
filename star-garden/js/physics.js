@@ -71,18 +71,32 @@ function crossesStellarSurface(startX, startY, position, surfaceRadius) {
   return Math.hypot(startX + closest * dx, startY + closest * dy) <= surfaceRadius;
 }
 
-function mergeSeedBodies(survivor, absorbed) {
+function mergeSeedBodies(survivor, absorbed, surfaceRadius = 0) {
   // Perfectly inelastic contact: conserve mass and linear momentum, not kinetic
   // energy. Real impacts can fragment; this model always sticks the bodies together.
   // https://rebound.hanno-rein.de/ipython_examples/User_Defined_Collision_Resolve/
   const firstMass = getSeedMass(survivor);
   const secondMass = getSeedMass(absorbed);
   const totalMass = firstMass + secondMass;
+  const mergedPosition = {};
   for (const axis of ["x", "y"]) {
-    survivor.position[axis] = (firstMass * survivor.position[axis]
+    mergedPosition[axis] = (firstMass * survivor.position[axis]
       + secondMass * absorbed.position[axis]) / totalMass;
     survivor.velocity[axis] = (firstMass * survivor.velocity[axis]
       + secondMass * absorbed.velocity[axis]) / totalMass;
+  }
+  // Our exaggerated contact radii can span a chord through the drawn star.
+  // Recentring must not falsely count as a body travelling into that star.
+  // In this visual-model edge case, keep the larger body's contact position.
+  // Mass and momentum still combine normally; genuine surface crossings are
+  // handled by stepSeeds, not by this instantaneous merger position adjustment.
+  const bothOutsideStar = Math.hypot(survivor.position.x, survivor.position.y) > surfaceRadius
+    && Math.hypot(absorbed.position.x, absorbed.position.y) > surfaceRadius;
+  const recenteringInsideStar = surfaceRadius > 0 && bothOutsideStar
+    && Math.hypot(mergedPosition.x, mergedPosition.y) <= surfaceRadius;
+  if (!recenteringInsideStar) {
+    survivor.position.x = mergedPosition.x;
+    survivor.position.y = mergedPosition.y;
   }
   survivor.material += absorbed.material;
   survivor.collected += absorbed.collected;

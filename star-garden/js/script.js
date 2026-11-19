@@ -20,6 +20,7 @@ const SEED_EMERGENCE_MATERIAL = 7;
 const MIN_SEEDS = 15;
 const MAX_SEEDS = 20;
 const MAX_VISITORS = 3;
+const ROGUE_EDGE_OFFSET = 2;
 const SEED_INNER_ORBIT_FACTOR = 1.15;
 const SEED_OUTER_ORBIT_FACTOR = 5.2;
 // Stagger adjacent orbits around the star instead of lining them up at reset.
@@ -190,22 +191,15 @@ function resetOrbit() {
   redraw();
 }
 
-function getRoguePlayBounds() {
-  const sidebar = document.querySelector(".sidebar").getBoundingClientRect();
-  const compact = width <= 640;
-  // Use the current canvas edges that frame the visible space, not the area
-  // behind the sidebar. In a compact layout, the controls sit below the space.
-  const left = compact ? 0 : sidebar.right;
-  const bottom = compact && sidebar.top > 0 ? sidebar.top : height;
-  const headerBottom = document.querySelector(".intro").getBoundingClientRect().bottom;
-  const top = compact && headerBottom < bottom ? headerBottom : 0;
-  return { left, right: width, top, bottom };
+function getRogueScreenBounds() {
+  // The canvas fills the current browser viewport. Panels never define an edge.
+  return { left: 0, right: width, top: 0, bottom: height };
 }
 
 function getRogueEntryPoint(radius) {
-  const { left, right, top, bottom } = getRoguePlayBounds();
+  const { left, right, top, bottom } = getRogueScreenBounds();
   // Start with the entire disk hidden and only a two-pixel gap before it enters.
-  const offset = radius + 2;
+  const offset = radius + ROGUE_EDGE_OFFSET;
   const cornerInset = Math.min(Math.max(24, radius * 2), (right - left) / 4, (bottom - top) / 4);
   const edge = Math.floor(random(4));
   return {
@@ -277,7 +271,7 @@ function addRoguePlanet() {
     mergers: 0,
     active: true,
     entering: true,
-    escapeRadius: Math.max(approachRadius, systemRadius * 1.5) * 1.25,
+    hasEnteredScreen: false,
   };
   roguePlanets.push(roguePlanet);
   seeds = [...residents, roguePlanet];
@@ -291,13 +285,20 @@ function updateEncounter() {
     const x = view.x + body.position.x * view.pixelsPerAU;
     const y = view.y + body.position.y * view.pixelsPerAU;
     const radius = getSeedRadius(body, view.radius);
-    const outside = x + radius < 0 || x - radius > width || y + radius < 0 || y - radius > height;
-    const movingOutward = body.position.x * body.velocity.x + body.position.y * body.velocity.y > 0;
-    // Remove only a distant, outbound, unbound visitor. Off-screen bound bodies
-    // remain simulated and occupy a visitor slot; never steer or teleport them.
-    if (body.active && outside && movingOutward
-      && Math.hypot(body.position.x, body.position.y) > body.escapeRadius
-      && getOrbitalPeriod(body, starSettings.mass) === null) {
+    const visible = x + radius >= 0 && x - radius <= width
+      && y + radius >= 0 && y - radius <= height;
+    if (visible) body.hasEnteredScreen = true;
+    const outside = x + radius < -ROGUE_EDGE_OFFSET || x - radius > width + ROGUE_EDGE_OFFSET
+      || y + radius < -ROGUE_EDGE_OFFSET || y - radius > height + ROGUE_EDGE_OFFSET;
+    // A new arrival reserves a slot while crossing the tiny off-screen gap.
+    // If it is deflected away before appearing, it must not hold a slot forever.
+    const movingAwayFromScreen = (x + radius < 0 && body.velocity.x < 0)
+      || (x - radius > width && body.velocity.x > 0)
+      || (y + radius < 0 && body.velocity.y < 0)
+      || (y - radius > height && body.velocity.y > 0);
+    // Once it has appeared, leaving the viewport retires it regardless of whether
+    // it is bound to the star. Retired rogues do not return or retain a visitor slot.
+    if (body.active && outside && (body.hasEnteredScreen || movingAwayFromScreen)) {
       body.active = false;
     }
   }
@@ -378,7 +379,7 @@ function selectPlanet(event) {
   // Any revealed planet can be selected, including during formation or while paused.
   // Allow a small click margin for tiny seeds; don't select invisible ones before Play.
   if (dustRevealTime > 0) {
-    const entryBounds = roguePlanets.some(body => body.entering) ? getRoguePlayBounds() : null;
+    const entryBounds = roguePlanets.some(body => body.entering) ? getRogueScreenBounds() : null;
     for (const seed of seeds) {
       if (!seed.active) continue;
       if (seed.entering && (clickX < entryBounds.left || clickX > entryBounds.right
@@ -490,7 +491,7 @@ function mergeTouchingSeeds(view) {
         // Preserve the larger visible body so its radius never snaps down on contact.
         const survivor = firstRadius >= secondRadius ? first : second;
         const absorbed = survivor === first ? second : first;
-        mergeSeedBodies(survivor, absorbed);
+        mergeSeedBodies(survivor, absorbed, view.radius / view.pixelsPerAU);
         // Count all merger events in the resulting planet's history.
         survivor.mergers += absorbed.mergers + 1;
         const mergingVisitors = roguePlanets.filter(body => body === first || body === second);
@@ -499,7 +500,8 @@ function mergeTouchingSeeds(view) {
           // Two visitors merging occupy one slot; a visitor + resident still occupy one.
           survivor.mature = true;
           survivor.entering = mergingVisitors.length === 2 && mergingVisitors.every(body => body.entering);
-          survivor.escapeRadius = Math.max(...mergingVisitors.map(body => body.escapeRadius));
+          survivor.hasEnteredScreen = !survivor.entering
+            || mergingVisitors.some(body => body.hasEnteredScreen);
           roguePlanets = roguePlanets.filter(body => body !== first && body !== second);
           roguePlanets.push(survivor);
         }
@@ -749,7 +751,7 @@ function draw() {
     context.arc(particleX, particleY, particle.size, 0, Math.PI * 2);
     context.fill();
   }
-  const entryBounds = roguePlanets.some(body => body.entering) ? getRoguePlayBounds() : null;
+  const entryBounds = roguePlanets.some(body => body.entering) ? getRogueScreenBounds() : null;
   for (const seed of seeds) {
     if (!seed.active) continue;
     const seedX = x + seed.position.x * pixelsPerAU;
@@ -760,7 +762,7 @@ function draw() {
       seed.entering = seedX - seedRadius < left || seedX + seedRadius > right
         || seedY - seedRadius < top || seedY + seedRadius > bottom;
       if (seed.entering) {
-        // Reveal only the part that has crossed the edge, including edges masked by UI.
+        // Reveal only the part that has crossed the browser edge, not a panel edge.
         context.save();
         context.beginPath();
         context.rect(left, top, right - left, bottom - top);
