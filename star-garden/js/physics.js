@@ -13,6 +13,8 @@ const EARTH_MASSES_PER_MATERIAL_UNIT = 0.01;
 // https://rebound.hanno-rein.de/simulation/variables/#gravity
 const PLANET_GRAVITY_SOFTENING = 0.01;
 const PLANET_GRAVITY_SUBSTEPS = 4;
+// Stylized one-way pull so flybys are visible at the simulation's display scale.
+const COMET_FLYBY_GRAVITY_BOOST = 300;
 
 function getSeedMass(seed) {
   // Use actual acquired material, never the eased visual size or colour milestone.
@@ -71,6 +73,73 @@ function crossesStellarSurface(startX, startY, position, surfaceRadius) {
   return Math.hypot(startX + closest * dx, startY + closest * dy) <= surfaceRadius;
 }
 
+function getCometAcceleration(position, starMass, planets, positionKey) {
+  const acceleration = getGravityAcceleration(position, starMass);
+  for (const planet of planets) {
+    const center = planet[positionKey];
+    const dx = center.x - position.x;
+    const dy = center.y - position.y;
+    const softening = Math.max(PLANET_GRAVITY_SOFTENING, planet.radius);
+    const distanceSquared = dx * dx + dy * dy + softening ** 2;
+    const strength = GRAVITY * planet.mass * COMET_FLYBY_GRAVITY_BOOST / distanceSquared ** 1.5;
+    acceleration.x += dx * strength;
+    acceleration.y += dy * strength;
+  }
+  return acceleration;
+}
+
+function getCircleContactFraction(startX, startY, endX, endY, radius) {
+  const dx = endX - startX;
+  const dy = endY - startY;
+  const outside = startX * startX + startY * startY - radius * radius;
+  if (outside <= 0) return 0;
+  const speedSquared = dx * dx + dy * dy;
+  const dot = startX * dx + startY * dy;
+  const discriminant = dot * dot - speedSquared * outside;
+  if (dot >= 0 || discriminant < 0) return Infinity;
+  const fraction = outside / (-dot + Math.sqrt(discriminant));
+  return fraction <= 1 ? fraction : Infinity;
+}
+
+function stepComet(comet, starMass, timeStep, starRadius, coreRadius, planets) {
+  const start = comet.position;
+  const before = getCometAcceleration(start, starMass, planets, "start");
+  const end = {
+    x: start.x + (comet.velocity.x + before.x * timeStep / 2) * timeStep,
+    y: start.y + (comet.velocity.y + before.y * timeStep / 2) * timeStep,
+  };
+  // Check the entire step, including the planet's motion, for the first impact.
+  let fraction = getCircleContactFraction(start.x, start.y, end.x, end.y, starRadius + coreRadius);
+  let hitPlanet = null;
+  for (const planet of planets) {
+    const contact = getCircleContactFraction(start.x - planet.start.x, start.y - planet.start.y,
+      end.x - planet.end.x, end.y - planet.end.y, planet.radius + coreRadius);
+    if (contact < fraction) {
+      fraction = contact;
+      hitPlanet = planet;
+    }
+  }
+  if (fraction <= 1) {
+    comet.position = {
+      x: start.x + (end.x - start.x) * fraction,
+      y: start.y + (end.y - start.y) * fraction,
+    };
+    return { planet: hitPlanet };
+  }
+  const after = getCometAcceleration(end, starMass, planets, "end");
+  comet.velocity.x += (before.x + after.x) * timeStep / 2;
+  comet.velocity.y += (before.y + after.y) * timeStep / 2;
+  comet.position = end;
+  return null;
+}
+
+function absorbSeedMaterial(survivor, absorbed) {
+  survivor.material += absorbed.material;
+  survivor.collected += absorbed.collected;
+  // Existing easing reveals the added mass within the display size cap.
+  absorbed.active = false;
+}
+
 function mergeSeedBodies(survivor, absorbed, surfaceRadius = 0) {
   // Perfectly inelastic contact: conserve mass and linear momentum, not kinetic
   // energy. Real impacts can fragment; this model always sticks the bodies together.
@@ -87,7 +156,7 @@ function mergeSeedBodies(survivor, absorbed, surfaceRadius = 0) {
   }
   // Our exaggerated contact radii can span a chord through the drawn star.
   // Recentring must not falsely count as a body travelling into that star.
-  // In this visual-model edge case, keep the larger body's contact position.
+  // In this visual-model edge case, keep the survivor's contact position.
   // Mass and momentum still combine normally; genuine surface crossings are
   // handled by stepSeeds, not by this instantaneous merger position adjustment.
   const bothOutsideStar = Math.hypot(survivor.position.x, survivor.position.y) > surfaceRadius
@@ -98,14 +167,10 @@ function mergeSeedBodies(survivor, absorbed, surfaceRadius = 0) {
     survivor.position.x = mergedPosition.x;
     survivor.position.y = mergedPosition.y;
   }
-  survivor.material += absorbed.material;
-  survivor.collected += absorbed.collected;
-  // Keep the survivor's current appearance; existing easing reveals its added mass.
-  // Display radii remain artistic and capped, rather than conserving physical volume.
-  absorbed.active = false;
+  absorbSeedMaterial(survivor, absorbed);
 }
 
-function stepSeeds(bodies, starMass, timeStep, surfaceRadius, resolveContacts = () => {}) {
+function stepSeeds(bodies, starMass, timeStep, surfaceRadius, resolveContacts, absorbPlanet) {
   // Synchronized Velocity Verlet: calculate all forces before moving any body.
   // Small substeps help close encounters and check visible contact more frequently.
   const substep = timeStep / PLANET_GRAVITY_SUBSTEPS;
@@ -113,7 +178,7 @@ function stepSeeds(bodies, starMass, timeStep, surfaceRadius, resolveContacts = 
   for (let step = 0; step < PLANET_GRAVITY_SUBSTEPS; step++) {
     for (const body of bodies) {
       if (body.active && Math.hypot(body.position.x, body.position.y) <= surfaceRadius) {
-        body.active = false;
+        absorbPlanet(body);
       }
     }
     const before = getSeedAccelerations(bodies, starMass);
@@ -125,7 +190,7 @@ function stepSeeds(bodies, starMass, timeStep, surfaceRadius, resolveContacts = 
       body.position.x += body.velocity.x * substep + 0.5 * before[i].x * substep ** 2;
       body.position.y += body.velocity.y * substep + 0.5 * before[i].y * substep ** 2;
       // Preserve existing absorption at the fixed star.
-      if (crossesStellarSurface(startX, startY, body.position, surfaceRadius)) body.active = false;
+      if (crossesStellarSurface(startX, startY, body.position, surfaceRadius)) absorbPlanet(body);
     }
     const after = getSeedAccelerations(bodies, starMass);
     for (let i = 0; i < bodies.length; i++) {

@@ -14,14 +14,25 @@ const SEED_DUST_RADIUS = 1.1;
 const PLANET_EARTH_MASS_RADIUS = 7.5;
 const SEED_GROWTH_SECONDS = 2;
 const MERGER_ANIMATION_SECONDS = 1.1;
+const PLANET_FADE_SECONDS = 0.8;
 const SEED_MAX_STAR_RATIO = 0.5;
 const SEED_COLOUR_THRESHOLD = 3;
 // Keep the size transition independent from the earlier colour milestone.
 const SEED_EMERGENCE_MATERIAL = 7;
 const MIN_SEEDS = 15;
 const MAX_SEEDS = 20;
-const MAX_VISITORS = 3;
-const ROGUE_EDGE_OFFSET = 2;
+const MAX_ROGUE_PLANETS = 10;
+const MAX_COMETS = 5;
+const VISITOR_ARRIVAL_INTERVAL = [0.75, 1.5];
+const VISITOR_EDGE_OFFSET = 2;
+const ROGUE_STAR_SIZE_RATIO = 0.25;
+const ROGUE_COLOUR = [85, 85, 85];
+const ROGUE_CLOSEST_APPROACH_RANGE = [0.2, 0.7];
+const COMET_CORE_RADIUS = 3;
+const COMET_TRAIL_SECONDS = 0.8;
+const COMET_COLOUR = "255, 73, 85";
+const MAX_MOONS = 3;
+const OUTER_RING_RADIUS_SCALE = 2.05;
 const SEED_INNER_ORBIT_FACTOR = 1.15;
 const SEED_OUTER_ORBIT_FACTOR = 5.2;
 // Stagger adjacent orbits around the star instead of lining them up at reset.
@@ -61,7 +72,11 @@ let dustParticles = [];
 let seeds = [];
 let selectedSeed = null;
 let roguePlanets = [];
+let comets = [];
+let nextRogueAt = 0;
+let nextCometAt = 0;
 let mergerAnimations = [];
+let planetFades = [];
 let diskAgeSeconds = 0;
 let dustRevealTime = 0;
 let isPlaying = false;
@@ -90,7 +105,6 @@ function setup() {
   document.getElementById("play").addEventListener("click", playOrbit);
   document.getElementById("pause").addEventListener("click", pauseOrbit);
   document.getElementById("reset").addEventListener("click", resetOrbit);
-  document.getElementById("add-rogue").addEventListener("click", addRoguePlanet);
   document.addEventListener("visibilitychange", () => {
     if (document.hidden && isPlaying) pauseOrbit();
   });
@@ -111,7 +125,7 @@ function updateStarSettings() {
 
   const description = getStarDescription(starSettings.mass, starSettings.heavyElements);
   document.getElementById("star-description").textContent = description;
-  describe(`${description} Mass is ${starSettings.mass.toFixed(1)} times the Sun's. Dust Particles is set to ${dustLevel.toLowerCase()}. Each reset creates between ${MIN_SEEDS} and ${MAX_SEEDS} seeds with orbit sizes spread across a wide band and slightly oval, differently oriented paths. Some paths can cross, but collisions are not forced. Press Play to reveal the finite dust supply and seeds, which initially look like the other particles. Each seed gently attracts nearby dust and grows by collecting dust that touches it. Their pull on dust strengthens with growth but is capped. Seeds gravitationally affect each other's orbits using masses based on collected material, while the star stays fixed. Seeds merge when their visible edges touch, combining mass and momentum with smooth, capped visual growth. From one minute thirty seconds, remaining dust departs outward at varied times, leaving the screen by three minutes as gas drag weakens. Dust can also escape or fade near the star. Reset starts fresh. Visible sizes, dust attraction, clearing motion, and time are exaggerated.`);
+  describe(`${description} Mass is ${starSettings.mass.toFixed(1)} times the Sun's. Dust Particles is set to ${dustLevel.toLowerCase()}. Each reset creates between ${MIN_SEEDS} and ${MAX_SEEDS} seeds with orbit sizes spread across a wide band and slightly oval, differently oriented paths. Some paths can cross, but collisions are not forced. Press Play to reveal the finite dust supply and seeds, which initially look like the other particles. Each seed gently attracts nearby dust and grows by collecting dust that touches it. Their pull on dust strengthens with growth but is capped. Seeds gravitationally affect each other's orbits using masses based on collected material, while the star stays fixed. Seeds merge when their visible edges touch, combining mass with smooth, capped visual growth. From one minute thirty seconds, remaining dust departs outward at varied times, leaving the screen by three minutes as gas drag weakens. Dust can also escape or fade near the star. After the dust clears, rogue planets and comets arrive automatically from the edges. Up to ${MAX_ROGUE_PLANETS} rogue planets and ${MAX_COMETS} comets can be active at once. Rogue planets are dark grey, a quarter of the star's width, and tend to pass through the inner system. When a rogue and a resident touch, the resident absorbs the rogue and keeps its orbit at contact. Two rogues merge into one rogue on contact. A resident planet gains one moon on each of its first three mergers and rings on its fourth. Comet impacts remove the rings first, then one moon per hit, then the planet. Destroyed planets fade out. Contact with the star removes the comet. Reset starts fresh. Visible sizes, dust attraction, clearing motion, and time are exaggerated.`);
 
   // Both settings define the starting system; don't spawn extra dust mid-run.
   if (!seeds.length || starSettings.mass !== previousMass || starSettings.heavyElements !== previousComposition) resetOrbit();
@@ -144,7 +158,11 @@ function resetOrbit() {
   noLoop();
   selectedSeed = null;
   roguePlanets = [];
+  comets = [];
+  nextRogueAt = 0;
+  nextCometAt = 0;
   mergerAnimations = [];
+  planetFades = [];
   updatePlanetInfo();
   const view = getSpaceView();
   // Generate the complete material supply once. Nothing replenishes it mid-run.
@@ -194,15 +212,15 @@ function resetOrbit() {
   redraw();
 }
 
-function getRogueScreenBounds() {
+function getVisitorScreenBounds() {
   // The canvas fills the current browser viewport. Panels never define an edge.
   return { left: 0, right: width, top: 0, bottom: height };
 }
 
-function getRogueEntryPoint(radius) {
-  const { left, right, top, bottom } = getRogueScreenBounds();
+function getVisitorEntryPoint(radius) {
+  const { left, right, top, bottom } = getVisitorScreenBounds();
   // Start with the entire disk hidden and only a two-pixel gap before it enters.
-  const offset = radius + ROGUE_EDGE_OFFSET;
+  const offset = radius + VISITOR_EDGE_OFFSET;
   const cornerInset = Math.min(Math.max(24, radius * 2), (right - left) / 4, (bottom - top) / 4);
   const edge = Math.floor(random(4));
   return {
@@ -213,35 +231,27 @@ function getRogueEntryPoint(radius) {
   };
 }
 
-function addRoguePlanet() {
-  // Guard the action as well as the button, including off-screen dust and paused time.
-  if (diskAgeSeconds <= 0 || dustParticles.length > 0 || roguePlanets.length >= MAX_VISITORS) return;
-  const view = getSpaceView();
-  // A stylized 5–30 Earth-mass visitor, with a compressed display scale.
-  const earthMasses = random(5, 30);
-  const material = earthMasses / EARTH_MASSES_PER_MATERIAL_UNIT;
-  const visualSizeScale = 0.25 + 0.25 * (earthMasses - 5) / 25;
-  const entry = getRogueEntryPoint(getSeedRadius({ visibleMaterial: material, visualSizeScale }, view.radius));
+function getVisitorApproach(view, radius, residents, closestApproachRange = [0, 1.15]) {
+  const entry = getVisitorEntryPoint(radius);
   const position = {
     x: (entry.x - view.x) / view.pixelsPerAU,
     y: (entry.y - view.y) / view.pixelsPerAU,
   };
   const approachRadius = Math.hypot(position.x, position.y);
-  if (approachRadius <= view.radius / view.pixelsPerAU) return;
+  if (approachRadius <= view.radius / view.pixelsPerAU) return null;
   const radial = { x: position.x / approachRadius, y: position.y / approachRadius };
-  const residents = seeds.filter(seed => seed.active);
   const systemRadius = Math.max(view.outerSeedOrbit,
-    ...residents.filter(seed => !roguePlanets.includes(seed))
+    ...residents.filter(seed => !seed.isRogue)
       .map(seed => Math.hypot(seed.position.x, seed.position.y)));
   // Unbound Keplerian approach: choose an encounter distance, NOT a target planet.
-  // v² = v_infinity² + 2μ/r; h = q sqrt(v_infinity² + 2μ/q).
+  // v² = v_infinity² + 2μ/r; h² = q² v_infinity² + 2μq.
   // https://orbital-mechanics.space/the-orbit-equation/hyperbolic-trajectories.html
   const mu = GRAVITY * starSettings.mass;
   // A viewport edge can be inside the outer orbits. Keep the planned closest
   // approach inside the spawn radius so the visitor still starts moving inward.
-  const closestApproach = random(0.5, 1.15) * Math.min(systemRadius, approachRadius * 0.8);
+  const closestApproach = random(...closestApproachRange) * Math.min(systemRadius, approachRadius * 0.8);
   const excessSpeed = random(0.3, 0.7) * Math.sqrt(mu / systemRadius);
-  const angularMomentum = closestApproach * Math.sqrt(excessSpeed ** 2 + 2 * mu / closestApproach);
+  const angularMomentum = Math.sqrt((closestApproach * excessSpeed) ** 2 + 2 * mu * closestApproach);
   let tangentialSpeed = (random() < 0.5 ? -1 : 1) * angularMomentum / approachRadius;
   const inwardSpeed = -Math.sqrt(Math.max(0,
     excessSpeed ** 2 + 2 * mu / approachRadius - tangentialSpeed ** 2));
@@ -249,67 +259,101 @@ function addRoguePlanet() {
   const normalInwardSpeed = inwardSpeed * (radial.x * entry.inwardX + radial.y * entry.inwardY);
   const tangentNormal = -radial.y * entry.inwardX + radial.x * entry.inwardY;
   if (tangentialSpeed * tangentNormal < -normalInwardSpeed * 0.5) tangentialSpeed *= -1;
-  // Extra palette slots cover all residents and visitors. A merged visitor
-  // may leave its colour behind, so choose a currently unused colour each time.
-  const visitorColour = [
-    [244, 92, 45], [185, 74, 212], [62, 207, 127], [244, 145, 30],
-    [235, 65, 140], [125, 210, 45], [35, 155, 132], [72, 109, 225],
-    [214, 69, 210], [240, 201, 69], ...planetColours,
-  ].find(rgb =>
-    !residents.some(seed => seed.planetColour.every((channel, index) => channel === rgb[index])));
-  const roguePlanet = {
+  return {
     position,
     velocity: {
       x: radial.x * inwardSpeed - radial.y * tangentialSpeed,
       y: radial.y * inwardSpeed + radial.x * tangentialSpeed,
     },
+    active: true,
+    hasEnteredScreen: false,
+  };
+}
+
+function addComet(view) {
+  const approach = getVisitorApproach(view, COMET_CORE_RADIUS, seeds.filter(seed => seed.active));
+  if (!approach) return;
+  comets.push({ ...approach, trail: [] });
+}
+
+function addRoguePlanet(view) {
+  // A stylized 5–30 Earth-mass visitor with a fixed display size.
+  const earthMasses = random(5, 30);
+  const material = earthMasses / EARTH_MASSES_PER_MATERIAL_UNIT;
+  const radius = view.radius * ROGUE_STAR_SIZE_RATIO;
+  const residents = seeds.filter(seed => seed.active);
+  const approach = getVisitorApproach(view, radius, residents, ROGUE_CLOSEST_APPROACH_RANGE);
+  if (!approach) return;
+  const roguePlanet = {
+    ...approach,
     material,
     visibleMaterial: material,
-    visualSizeScale,
-    opacity: 1,
-    planetColour: visitorColour,
-    colourProgress: 1,
-    mature: true,
+    isRogue: true,
     collected: 0,
-    mergers: 0,
-    active: true,
     entering: true,
-    hasEnteredScreen: false,
   };
   roguePlanets.push(roguePlanet);
   seeds = [...residents, roguePlanet];
-  updateEncounter();
-  if (!isPlaying) redraw();
 }
 
-function updateEncounter() {
-  const view = getSpaceView();
+function retireOffscreenVisitor(body, position, radius, view) {
+  const x = view.x + position.x * view.pixelsPerAU;
+  const y = view.y + position.y * view.pixelsPerAU;
+  const visible = x + radius >= 0 && x - radius <= width
+    && y + radius >= 0 && y - radius <= height;
+  if (visible) body.hasEnteredScreen = true;
+  const outside = x + radius < -VISITOR_EDGE_OFFSET || x - radius > width + VISITOR_EDGE_OFFSET
+    || y + radius < -VISITOR_EDGE_OFFSET || y - radius > height + VISITOR_EDGE_OFFSET;
+  // A new arrival reserves a slot while crossing the tiny off-screen gap.
+  const movingAwayFromScreen = (x + radius < 0 && body.velocity.x < 0)
+    || (x - radius > width && body.velocity.x > 0)
+    || (y + radius < 0 && body.velocity.y < 0)
+    || (y - radius > height && body.velocity.y > 0);
+  if (outside && (body.hasEnteredScreen || movingAwayFromScreen)) body.active = false;
+}
+
+function updateVisitors(view) {
   for (const body of roguePlanets) {
-    const position = getSeedDisplayPosition(body);
-    const x = view.x + position.x * view.pixelsPerAU;
-    const y = view.y + position.y * view.pixelsPerAU;
-    const radius = getSeedRadius(body, view.radius);
-    const visible = x + radius >= 0 && x - radius <= width
-      && y + radius >= 0 && y - radius <= height;
-    if (visible) body.hasEnteredScreen = true;
-    const outside = x + radius < -ROGUE_EDGE_OFFSET || x - radius > width + ROGUE_EDGE_OFFSET
-      || y + radius < -ROGUE_EDGE_OFFSET || y - radius > height + ROGUE_EDGE_OFFSET;
-    // A new arrival reserves a slot while crossing the tiny off-screen gap.
-    // If it is deflected away before appearing, it must not hold a slot forever.
-    const movingAwayFromScreen = (x + radius < 0 && body.velocity.x < 0)
-      || (x - radius > width && body.velocity.x > 0)
-      || (y + radius < 0 && body.velocity.y < 0)
-      || (y - radius > height && body.velocity.y > 0);
-    // Once it has appeared, leaving the viewport retires it regardless of whether
-    // it is bound to the star. Retired rogues do not return or retain a visitor slot.
-    if (body.active && outside && (body.hasEnteredScreen || movingAwayFromScreen)) {
-      body.active = false;
-    }
+    retireOffscreenVisitor(body, getSeedDisplayPosition(body), getSeedRadius(body, view.radius), view);
+  }
+  for (const comet of comets) {
+    if (comet.active) retireOffscreenVisitor(comet, comet.position, COMET_CORE_RADIUS, view);
+    comet.trail = comet.trail.filter(point => diskAgeSeconds - point.time < COMET_TRAIL_SECONDS);
   }
   roguePlanets = roguePlanets.filter(body => body.active);
-  const locked = diskAgeSeconds <= 0 || dustParticles.length > 0;
-  document.getElementById("encounter-panel").hidden = locked;
-  document.getElementById("add-rogue").disabled = locked || roguePlanets.length >= MAX_VISITORS;
+  comets = comets.filter(comet => comet.active || comet.trail.length > 0);
+  if (!isPlaying || diskAgeSeconds <= 0 || dustParticles.length > 0) return;
+
+  if (diskAgeSeconds >= nextRogueAt && roguePlanets.length < MAX_ROGUE_PLANETS) {
+    addRoguePlanet(view);
+    nextRogueAt = diskAgeSeconds + random(...VISITOR_ARRIVAL_INTERVAL);
+  }
+  if (diskAgeSeconds >= nextCometAt && comets.filter(comet => comet.active).length < MAX_COMETS) {
+    addComet(view);
+    nextCometAt = diskAgeSeconds + random(...VISITOR_ARRIVAL_INTERVAL);
+  }
+}
+
+function advanceComets(view, surfaceRadius, planets) {
+  const coreRadius = COMET_CORE_RADIUS / view.pixelsPerAU;
+  for (const comet of comets) {
+    if (!comet.active) continue;
+    const impact = stepComet(comet, starSettings.mass, PHYSICS_STEP, surfaceRadius, coreRadius, planets);
+    comet.trail.push({ ...comet.position, time: diskAgeSeconds });
+    if (!impact) continue;
+    comet.active = false;
+    if (!impact.planet) continue;
+    const { seed } = impact.planet;
+    if (seed.hasRings) {
+      seed.hasRings = false;
+    } else if (seed.moons?.length) {
+      seed.moons.pop();
+    } else {
+      destroyPlanet(seed, view);
+      // Later comets in this step can fly through the space the planet occupied.
+      planets.splice(planets.indexOf(impact.planet), 1);
+    }
+  }
 }
 
 function advanceOrbit(frameSeconds) {
@@ -324,10 +368,20 @@ function advanceOrbit(frameSeconds) {
     const clearing = Math.max(0, Math.min(1,
       (diskAgeSeconds - DISK_CLEARING_START_SECONDS) / DISK_CLEARING_DURATION_SECONDS));
     const gasAmount = 1 - smoothProgress(clearing);
+    const cometTargets = comets.some(comet => comet.active)
+      ? seeds.filter(seed => seed.active).map(seed => ({ seed, start: { ...getSeedDisplayPosition(seed) } }))
+      : null;
     // Real mass-scaled mutual gravity, separate from the exaggerated dust pull.
     // The star remains fixed; visible contact merges seeds, with no seed gas drag.
     stepSeeds(seeds, starSettings.mass, PHYSICS_STEP, surfaceRadius,
-      () => mergeTouchingSeeds(view));
+      () => mergeTouchingSeeds(view), seed => destroyPlanet(seed, view));
+    if (cometTargets) {
+      const planets = cometTargets.filter(({ seed }) => seed.active).map(({ seed, start }) => ({
+        seed, start, end: getSeedDisplayPosition(seed), mass: getSeedMass(seed),
+        radius: getSeedRadius(seed, view.radius) / view.pixelsPerAU,
+      }));
+      advanceComets(view, surfaceRadius, planets);
+    }
     const attractors = seeds.filter(seed => seed.active).map(seed => ({
       position: seed.position,
       materialRatio: seed.visibleMaterial / SEED_STARTING_MATERIAL,
@@ -355,7 +409,8 @@ function advanceOrbit(frameSeconds) {
     const colourBlend = -Math.expm1(-PHYSICS_STEP / YEARS_PER_SECOND / 2);
     for (const seed of seeds) {
       seed.visibleMaterial += (seed.material - seed.visibleMaterial) * growthBlend;
-      const colourTarget = seed.mature || seed.collected >= SEED_COLOUR_THRESHOLD ? 1 : 0;
+      if (seed.isRogue) continue;
+      const colourTarget = seed.collected >= SEED_COLOUR_THRESHOLD ? 1 : 0;
       seed.colourProgress += (colourTarget - seed.colourProgress) * colourBlend;
     }
     timeAccumulator = Math.max(0, timeAccumulator - PHYSICS_STEP);
@@ -383,7 +438,7 @@ function selectPlanet(event) {
   // Any revealed planet can be selected, including during formation or while paused.
   // Allow a small click margin for tiny seeds; don't select invisible ones before Play.
   if (dustRevealTime > 0) {
-    const entryBounds = roguePlanets.some(body => body.entering) ? getRogueScreenBounds() : null;
+    const entryBounds = roguePlanets.some(body => body.entering) ? getVisitorScreenBounds() : null;
     for (const seed of seeds) {
       if (!seed.active) continue;
       if (seed.entering && (clickX < entryBounds.left || clickX > entryBounds.right
@@ -463,7 +518,7 @@ function getDustHeatRadius(view) {
 }
 
 function getSeedRadius(seed, starRadius) {
-  // Shared mass-to-size mapping, with a compressed display scale for large visitors.
+  if (seed.isRogue) return starRadius * ROGUE_STAR_SIZE_RATIO;
   // Cube-root scaling is a simple common-density assumption, not a composition model.
   // Ease the material first so dust collection and mergers never snap the size.
   const visibleEarthMasses = seed.visibleMaterial * EARTH_MASSES_PER_MATERIAL_UNIT;
@@ -473,7 +528,7 @@ function getSeedRadius(seed, starRadius) {
   const acquired = Math.max(0, seed.visibleMaterial - SEED_STARTING_MATERIAL);
   const emergence = smoothProgress(acquired / SEED_EMERGENCE_MATERIAL);
   const grownRadius = SEED_DUST_RADIUS + (massRadius - SEED_DUST_RADIUS) * emergence;
-  return Math.min(grownRadius, starRadius * SEED_MAX_STAR_RATIO) * (seed.visualSizeScale ?? 1);
+  return Math.min(grownRadius, starRadius * SEED_MAX_STAR_RATIO);
 }
 
 function getSeedDisplayPosition(seed) {
@@ -487,12 +542,25 @@ function getSeedDisplayPosition(seed) {
 }
 
 function getSeedAppearance(seed) {
+  if (seed.isRogue) return { opacity: 1, colour: ROGUE_COLOUR };
   const acquired = seed.visibleMaterial - SEED_STARTING_MATERIAL;
   return {
     opacity: seed.opacity + (1 - seed.opacity) * acquired / (acquired + 4),
     colour: [218, 204, 181].map((channel, index) =>
       Math.round(channel + (seed.planetColour[index] - channel) * seed.colourProgress)),
   };
+}
+
+function destroyPlanet(seed, view) {
+  planetFades.push({
+    position: { ...getSeedDisplayPosition(seed) },
+    radius: getSeedRadius(seed, view.radius),
+    appearance: getSeedAppearance(seed),
+    hasRings: seed.hasRings,
+    moons: seed.moons,
+    startedAt: diskAgeSeconds,
+  });
+  seed.active = false;
 }
 
 function drawMergerAnimations(context, view, dustOpacity) {
@@ -532,20 +600,38 @@ function mergeTouchingSeeds(view) {
         const contactDistance = (firstRadius + secondRadius) / view.pixelsPerAU;
         if (Math.hypot(first.position.x - second.position.x,
           first.position.y - second.position.y) > contactDistance) continue;
-        // Preserve the larger visible body so its radius never snaps down on contact.
-        const survivor = firstRadius >= secondRadius ? first : second;
+        // Residents take priority in mixed encounters. Rogues have equal display sizes.
+        const bothRogues = first.isRogue && second.isRogue;
+        const firstSurvives = bothRogues
+          ? first.material >= second.material
+          : second.isRogue || (!first.isRogue && firstRadius >= secondRadius);
+        const survivor = firstSurvives ? first : second;
         const absorbed = survivor === first ? second : first;
-        const survivorPosition = { ...getSeedDisplayPosition(survivor) };
         const absorbedPosition = { ...getSeedDisplayPosition(absorbed) };
         const absorbedAppearance = getSeedAppearance(absorbed);
-        mergeSeedBodies(survivor, absorbed, view.radius / view.pixelsPerAU);
-        // Ease the survivor's centre too, so physical recentering doesn't make it
-        // jump over the smaller body before the absorption can be seen.
-        survivor.mergeDisplayOffset = {
-          x: survivorPosition.x - survivor.position.x,
-          y: survivorPosition.y - survivor.position.y,
-          startedAt: diskAgeSeconds,
-        };
+        if (absorbed.isRogue && !survivor.isRogue) {
+          // Feeding a resident transfers material while keeping its orbit at contact.
+          absorbSeedMaterial(survivor, absorbed);
+        } else {
+          const survivorPosition = { ...getSeedDisplayPosition(survivor) };
+          mergeSeedBodies(survivor, absorbed, view.radius / view.pixelsPerAU);
+          // Ease the survivor's display position after physical recentering.
+          survivor.mergeDisplayOffset = {
+            x: survivorPosition.x - survivor.position.x,
+            y: survivorPosition.y - survivor.position.y,
+            startedAt: diskAgeSeconds,
+          };
+        }
+        if (!survivor.isRogue) {
+          // The reward sequence follows the resident's own mergers, even after impacts.
+          survivor.mergers++;
+          if (survivor.mergers <= MAX_MOONS) {
+            survivor.moons ??= [];
+            survivor.moons.push({ angle: random(TWO_PI), startedAt: diskAgeSeconds });
+          } else if (survivor.mergers === MAX_MOONS + 1) {
+            survivor.hasRings = true;
+          }
+        }
         // Retarget ongoing absorptions if their host is itself eaten in a chain.
         for (const animation of mergerAnimations) {
           if (animation.target === absorbed) animation.target = survivor;
@@ -557,22 +643,13 @@ function mergeTouchingSeeds(view) {
           ...absorbedAppearance,
           startedAt: diskAgeSeconds,
         });
-        // Count all merger events in the resulting planet's history.
-        survivor.mergers += absorbed.mergers + 1;
-        const mergingVisitors = roguePlanets.filter(body => body === first || body === second);
-        if (mergingVisitors.length > 0) {
-          // Keep the rogue identity even when the resident is the surviving object.
-          // Two visitors merging occupy one slot; a visitor + resident still occupy one.
-          survivor.mature = true;
-          survivor.entering = mergingVisitors.length === 2 && mergingVisitors.every(body => body.entering);
-          survivor.hasEnteredScreen = !survivor.entering
-            || mergingVisitors.some(body => body.hasEnteredScreen);
-          roguePlanets = roguePlanets.filter(body => body !== first && body !== second);
-          roguePlanets.push(survivor);
+        if (bothRogues) {
+          survivor.entering = first.entering && second.entering;
+          survivor.hasEnteredScreen = first.hasEnteredScreen || second.hasEnteredScreen;
         }
         if (selectedSeed === absorbed) selectedSeed = survivor;
         if (Math.hypot(survivor.position.x, survivor.position.y)
-          <= view.radius / view.pixelsPerAU) survivor.active = false;
+          <= view.radius / view.pixelsPerAU) destroyPlanet(survivor, view);
         merged = true;
         break;
       }
@@ -762,6 +839,85 @@ function getStarColour(mass) {
   return starColours[starColours.length - 1].rgb;
 }
 
+function drawComets(context, x, y, pixelsPerAU) {
+  for (const comet of comets) {
+    for (const point of comet.trail) {
+      const remaining = 1 - (diskAgeSeconds - point.time) / COMET_TRAIL_SECONDS;
+      context.fillStyle = `rgba(${COMET_COLOUR}, ${0.6 * remaining ** 2})`;
+      context.beginPath();
+      context.arc(x + point.x * pixelsPerAU, y + point.y * pixelsPerAU,
+        COMET_CORE_RADIUS * remaining, 0, Math.PI * 2);
+      context.fill();
+    }
+    if (comet.active) {
+      context.fillStyle = `rgb(${COMET_COLOUR})`;
+      context.beginPath();
+      context.arc(x + comet.position.x * pixelsPerAU, y + comet.position.y * pixelsPerAU,
+        COMET_CORE_RADIUS, 0, Math.PI * 2);
+      context.fill();
+    }
+  }
+}
+
+function drawMoons(context, moons, x, y, planetRadius, hasRings, opacity) {
+  if (!moons?.length) return;
+  context.fillStyle = `rgba(168, 173, 184, ${opacity})`;
+  const radius = Math.min(2, Math.max(0.8, planetRadius * 0.25));
+  // Leave room for the outer ring's stroke and the moon's full disk.
+  const firstOrbit = hasRings
+    ? Math.max(planetRadius + 5, planetRadius * (OUTER_RING_RADIUS_SCALE + 0.05) + radius + 2)
+    : planetRadius + 5;
+  for (const [index, moon] of moons.entries()) {
+    const angle = moon.angle + (diskAgeSeconds - moon.startedAt) * 1.8;
+    const distance = firstOrbit + index * 5;
+    context.beginPath();
+    context.arc(x + Math.cos(angle) * distance, y + Math.sin(angle) * distance, radius, 0, Math.PI * 2);
+    context.fill();
+  }
+}
+
+function drawRingHalf(context, x, y, planetRadius, front, opacity) {
+  // The planet disk covers the back half. Draw the front half over the disk.
+  const startAngle = front ? 0 : Math.PI;
+  const endAngle = startAngle + Math.PI;
+  const tilt = -Math.PI / 8;
+  context.save();
+  context.globalAlpha = opacity;
+  context.strokeStyle = "#d9c49e";
+  context.lineWidth = Math.max(0.7, planetRadius * 0.18);
+  context.beginPath();
+  context.ellipse(x, y, planetRadius * 1.65, planetRadius * 0.55, tilt, startAngle, endAngle);
+  context.stroke();
+  context.strokeStyle = "#a99677";
+  context.lineWidth = Math.max(0.55, planetRadius * 0.09);
+  context.beginPath();
+  context.ellipse(x, y, planetRadius * OUTER_RING_RADIUS_SCALE, planetRadius * 0.68, tilt, startAngle, endAngle);
+  context.stroke();
+  context.restore();
+}
+
+function drawPlanetBody(context, x, y, radius, appearance, planet, visibility) {
+  const opacity = appearance.opacity * visibility;
+  if (planet.hasRings) drawRingHalf(context, x, y, radius, false, opacity);
+  context.fillStyle = `rgba(${appearance.colour.join(",")}, ${opacity})`;
+  context.beginPath();
+  context.arc(x, y, radius, 0, Math.PI * 2);
+  context.fill();
+  if (planet.hasRings) drawRingHalf(context, x, y, radius, true, opacity);
+  drawMoons(context, planet.moons, x, y, radius, planet.hasRings, visibility);
+}
+
+function drawPlanetFades(context, view, visibility) {
+  planetFades = planetFades.filter(planet => diskAgeSeconds - planet.startedAt < PLANET_FADE_SECONDS);
+  for (const planet of planetFades) {
+    const progress = (diskAgeSeconds - planet.startedAt) / PLANET_FADE_SECONDS;
+    const x = view.x + planet.position.x * view.pixelsPerAU;
+    const y = view.y + planet.position.y * view.pixelsPerAU;
+    const radius = Math.min(planet.radius, view.radius * SEED_MAX_STAR_RATIO);
+    drawPlanetBody(context, x, y, radius, planet.appearance, planet, visibility * (1 - smoothProgress(progress)));
+  }
+}
+
 function draw() {
   if (isPlaying) {
     const now = performance.now();
@@ -770,12 +926,13 @@ function draw() {
     dustRevealTime = Math.min(DUST_FADE_SECONDS, dustRevealTime + frameSeconds);
     lastFrameTime = now;
   }
-  updateEncounter();
+  const view = getSpaceView();
+  updateVisitors(view);
   updatePlanetInfo();
   background("#0b0d16");
 
   // Keep the star clear of the controls, while dust fills the whole canvas.
-  const { x, y, radius, pixelsPerAU } = getSpaceView();
+  const { x, y, radius, pixelsPerAU } = view;
 
   const amount = (starSettings.mass - 0.2) / 4.8;
   if (radius <= 0) return;
@@ -817,8 +974,10 @@ function draw() {
     context.fill();
   }
   // Draw the smaller remnants underneath the survivors, so they slide into the disk.
-  drawMergerAnimations(context, { x, y, radius, pixelsPerAU }, dustOpacity);
-  const entryBounds = roguePlanets.some(body => body.entering) ? getRogueScreenBounds() : null;
+  drawMergerAnimations(context, view, dustOpacity);
+  drawPlanetFades(context, view, dustOpacity);
+  drawComets(context, x, y, pixelsPerAU);
+  const entryBounds = roguePlanets.some(body => body.entering) ? getVisitorScreenBounds() : null;
   for (const seed of seeds) {
     if (!seed.active) continue;
     const position = getSeedDisplayPosition(seed);
@@ -837,17 +996,7 @@ function draw() {
         context.clip();
       }
     }
-    const appearance = getSeedAppearance(seed);
-    context.fillStyle = `rgba(${appearance.colour.join(",")}, ${appearance.opacity * dustOpacity})`;
-    context.beginPath();
-    context.arc(seedX, seedY, seedRadius, 0, Math.PI * 2);
-    context.fill();
-    if (!seed.entering && roguePlanets.includes(seed)) {
-      context.font = "12px Arial, sans-serif";
-      context.textAlign = "center";
-      context.fillStyle = "#dce2ed";
-      context.fillText("Rogue planet", seedX, seedY - seedRadius - 8);
-    }
+    drawPlanetBody(context, seedX, seedY, seedRadius, getSeedAppearance(seed), seed, dustOpacity);
     if (seed === selectedSeed) {
       context.strokeStyle = "#f2cf9c";
       context.lineWidth = 1;
