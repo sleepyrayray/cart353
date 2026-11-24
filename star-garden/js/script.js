@@ -13,6 +13,7 @@ const SEED_DUST_RADIUS = 1.1;
 // Deliberately enlarged for readability, not to scale with the star or distances.
 const PLANET_EARTH_MASS_RADIUS = 7.5;
 const SEED_GROWTH_SECONDS = 2;
+const MERGER_ANIMATION_SECONDS = 1.1;
 const SEED_MAX_STAR_RATIO = 0.5;
 const SEED_COLOUR_THRESHOLD = 3;
 // Keep the size transition independent from the earlier colour milestone.
@@ -60,6 +61,7 @@ let dustParticles = [];
 let seeds = [];
 let selectedSeed = null;
 let roguePlanets = [];
+let mergerAnimations = [];
 let diskAgeSeconds = 0;
 let dustRevealTime = 0;
 let isPlaying = false;
@@ -142,6 +144,7 @@ function resetOrbit() {
   noLoop();
   selectedSeed = null;
   roguePlanets = [];
+  mergerAnimations = [];
   updatePlanetInfo();
   const view = getSpaceView();
   // Generate the complete material supply once. Nothing replenishes it mid-run.
@@ -217,7 +220,7 @@ function addRoguePlanet() {
   // A stylized 5–30 Earth-mass visitor, with a compressed display scale.
   const earthMasses = random(5, 30);
   const material = earthMasses / EARTH_MASSES_PER_MATERIAL_UNIT;
-  const visualSizeScale = 0.45 + 0.55 * (earthMasses - 5) / 25;
+  const visualSizeScale = 0.25 + 0.25 * (earthMasses - 5) / 25;
   const entry = getRogueEntryPoint(getSeedRadius({ visibleMaterial: material, visualSizeScale }, view.radius));
   const position = {
     x: (entry.x - view.x) / view.pixelsPerAU,
@@ -282,8 +285,9 @@ function addRoguePlanet() {
 function updateEncounter() {
   const view = getSpaceView();
   for (const body of roguePlanets) {
-    const x = view.x + body.position.x * view.pixelsPerAU;
-    const y = view.y + body.position.y * view.pixelsPerAU;
+    const position = getSeedDisplayPosition(body);
+    const x = view.x + position.x * view.pixelsPerAU;
+    const y = view.y + position.y * view.pixelsPerAU;
     const radius = getSeedRadius(body, view.radius);
     const visible = x + radius >= 0 && x - radius <= width
       && y + radius >= 0 && y - radius <= height;
@@ -384,8 +388,9 @@ function selectPlanet(event) {
       if (!seed.active) continue;
       if (seed.entering && (clickX < entryBounds.left || clickX > entryBounds.right
         || clickY < entryBounds.top || clickY > entryBounds.bottom)) continue;
-      const x = view.x + seed.position.x * view.pixelsPerAU;
-      const y = view.y + seed.position.y * view.pixelsPerAU;
+      const position = getSeedDisplayPosition(seed);
+      const x = view.x + position.x * view.pixelsPerAU;
+      const y = view.y + position.y * view.pixelsPerAU;
       const distance = Math.hypot(clickX - x, clickY - y);
       const radius = getSeedRadius(seed, view.radius);
       const targetRadius = seed.entering ? radius : Math.max(8, radius);
@@ -471,6 +476,45 @@ function getSeedRadius(seed, starRadius) {
   return Math.min(grownRadius, starRadius * SEED_MAX_STAR_RATIO) * (seed.visualSizeScale ?? 1);
 }
 
+function getSeedDisplayPosition(seed) {
+  const offset = seed.mergeDisplayOffset;
+  if (!offset) return seed.position;
+  const remaining = 1 - smoothProgress((diskAgeSeconds - offset.startedAt) / MERGER_ANIMATION_SECONDS);
+  return {
+    x: seed.position.x + offset.x * remaining,
+    y: seed.position.y + offset.y * remaining,
+  };
+}
+
+function getSeedAppearance(seed) {
+  const acquired = seed.visibleMaterial - SEED_STARTING_MATERIAL;
+  return {
+    opacity: seed.opacity + (1 - seed.opacity) * acquired / (acquired + 4),
+    colour: [218, 204, 181].map((channel, index) =>
+      Math.round(channel + (seed.planetColour[index] - channel) * seed.colourProgress)),
+  };
+}
+
+function drawMergerAnimations(context, view, dustOpacity) {
+  // These are visual remnants only: no gravity, collection, labels, or click targets.
+  mergerAnimations = mergerAnimations.filter(animation => animation.target.active
+    && diskAgeSeconds - animation.startedAt < MERGER_ANIMATION_SECONDS);
+  for (const animation of mergerAnimations) {
+    const progress = (diskAgeSeconds - animation.startedAt) / MERGER_ANIMATION_SECONDS;
+    const blend = smoothProgress(progress);
+    const target = getSeedDisplayPosition(animation.target);
+    const x = animation.position.x + (target.x - animation.position.x) * blend;
+    const y = animation.position.y + (target.y - animation.position.y) * blend;
+    const radius = Math.min(animation.radius, view.radius * SEED_MAX_STAR_RATIO) * (1 - blend);
+    const opacity = animation.opacity * dustOpacity * (1 - smoothProgress((progress - 0.65) / 0.35));
+    context.fillStyle = `rgba(${animation.colour.join(",")}, ${opacity})`;
+    context.beginPath();
+    context.arc(view.x + x * view.pixelsPerAU, view.y + y * view.pixelsPerAU,
+      radius, 0, Math.PI * 2);
+    context.fill();
+  }
+}
+
 function mergeTouchingSeeds(view) {
   // Contact uses the drawn edges, not the larger dust-attraction reach.
   // Restart after a merge: the new centre of mass might touch a third body.
@@ -491,7 +535,28 @@ function mergeTouchingSeeds(view) {
         // Preserve the larger visible body so its radius never snaps down on contact.
         const survivor = firstRadius >= secondRadius ? first : second;
         const absorbed = survivor === first ? second : first;
+        const survivorPosition = { ...getSeedDisplayPosition(survivor) };
+        const absorbedPosition = { ...getSeedDisplayPosition(absorbed) };
+        const absorbedAppearance = getSeedAppearance(absorbed);
         mergeSeedBodies(survivor, absorbed, view.radius / view.pixelsPerAU);
+        // Ease the survivor's centre too, so physical recentering doesn't make it
+        // jump over the smaller body before the absorption can be seen.
+        survivor.mergeDisplayOffset = {
+          x: survivorPosition.x - survivor.position.x,
+          y: survivorPosition.y - survivor.position.y,
+          startedAt: diskAgeSeconds,
+        };
+        // Retarget ongoing absorptions if their host is itself eaten in a chain.
+        for (const animation of mergerAnimations) {
+          if (animation.target === absorbed) animation.target = survivor;
+        }
+        mergerAnimations.push({
+          target: survivor,
+          position: absorbedPosition,
+          radius: getSeedRadius(absorbed, view.radius),
+          ...absorbedAppearance,
+          startedAt: diskAgeSeconds,
+        });
         // Count all merger events in the resulting planet's history.
         survivor.mergers += absorbed.mergers + 1;
         const mergingVisitors = roguePlanets.filter(body => body === first || body === second);
@@ -751,11 +816,14 @@ function draw() {
     context.arc(particleX, particleY, particle.size, 0, Math.PI * 2);
     context.fill();
   }
+  // Draw the smaller remnants underneath the survivors, so they slide into the disk.
+  drawMergerAnimations(context, { x, y, radius, pixelsPerAU }, dustOpacity);
   const entryBounds = roguePlanets.some(body => body.entering) ? getRogueScreenBounds() : null;
   for (const seed of seeds) {
     if (!seed.active) continue;
-    const seedX = x + seed.position.x * pixelsPerAU;
-    const seedY = y + seed.position.y * pixelsPerAU;
+    const position = getSeedDisplayPosition(seed);
+    const seedX = x + position.x * pixelsPerAU;
+    const seedY = y + position.y * pixelsPerAU;
     const seedRadius = getSeedRadius(seed, radius);
     if (seed.entering) {
       const { left, right, top, bottom } = entryBounds;
@@ -769,14 +837,8 @@ function draw() {
         context.clip();
       }
     }
-    // Start dust-like, then become more opaque only as material is collected.
-    const acquired = seed.visibleMaterial - SEED_STARTING_MATERIAL;
-    const seedOpacity = seed.opacity + (1 - seed.opacity) * acquired / (acquired + 4);
-    const dustColour = [218, 204, 181];
-    const seedColour = dustColour.map((channel, index) =>
-      Math.round(channel + (seed.planetColour[index] - channel) * seed.colourProgress)
-    );
-    context.fillStyle = `rgba(${seedColour.join(",")}, ${seedOpacity * dustOpacity})`;
+    const appearance = getSeedAppearance(seed);
+    context.fillStyle = `rgba(${appearance.colour.join(",")}, ${appearance.opacity * dustOpacity})`;
     context.beginPath();
     context.arc(seedX, seedY, seedRadius, 0, Math.PI * 2);
     context.fill();
