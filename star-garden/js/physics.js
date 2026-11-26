@@ -136,7 +136,7 @@ function stepComet(comet, starMass, timeStep, starRadius, coreRadius, planets) {
 function absorbSeedMaterial(survivor, absorbed) {
   survivor.material += absorbed.material;
   survivor.collected += absorbed.collected;
-  // Existing easing reveals the added mass within the display size cap.
+  // Mergers transfer physical mass. Dust collection sets the display radius.
   absorbed.active = false;
 }
 

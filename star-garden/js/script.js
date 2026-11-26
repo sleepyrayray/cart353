@@ -1,9 +1,9 @@
 const starSettings = {
   mass: 1,
-  heavyElements: 1,
 };
 
 const MAX_DUST_COUNT = 6750;
+const DUST_COUNT_MULTIPLIER = 6.75;
 const DUST_FADE_SECONDS = 1.2;
 // Shared display scale for the star and seeds, not a change to their masses.
 const BODY_VISUAL_SCALE = 1.5;
@@ -64,9 +64,9 @@ const planetColours = [
   [174, 54, 80], // cranberry
 ];
 // Compressed disk evolution for the experience, not real astronomical timescales.
-const DISK_CLEARING_START_SECONDS = 90;
-const DISK_CLEARING_DURATION_SECONDS = 90;
-const LAST_DUST_DEPARTURE_SECONDS = 160;
+const DISK_CLEARING_START_SECONDS = 45;
+const DISK_CLEARING_DURATION_SECONDS = 45;
+const LAST_DUST_DEPARTURE_SECONDS = 80;
 
 let dustParticles = [];
 let seeds = [];
@@ -101,7 +101,6 @@ function setup() {
   noLoop();
 
   document.getElementById("mass").addEventListener("input", updateStarSettings);
-  document.getElementById("heavy-elements").addEventListener("input", updateStarSettings);
   document.getElementById("play").addEventListener("click", playOrbit);
   document.getElementById("pause").addEventListener("click", pauseOrbit);
   document.getElementById("reset").addEventListener("click", resetOrbit);
@@ -113,22 +112,14 @@ function setup() {
 
 function updateStarSettings() {
   const previousMass = starSettings.mass;
-  const previousComposition = starSettings.heavyElements;
   starSettings.mass = Number(document.getElementById("mass").value);
-  starSettings.heavyElements = Number(document.getElementById("heavy-elements").value);
 
   document.getElementById("mass-value").textContent = `${starSettings.mass.toFixed(1)}× Sun`;
-  const dustLevel = starSettings.heavyElements < 0.8 ? "Low"
-    : starSettings.heavyElements > 1.2 ? "High" : "Medium";
-  document.getElementById("heavy-elements-value").textContent = dustLevel;
-  document.getElementById("heavy-elements").setAttribute("aria-valuetext", dustLevel);
-
-  const description = getStarDescription(starSettings.mass, starSettings.heavyElements);
+  const description = getStarDescription(starSettings.mass);
   document.getElementById("star-description").textContent = description;
-  describe(`${description} Mass is ${starSettings.mass.toFixed(1)} times the Sun's. Dust Particles is set to ${dustLevel.toLowerCase()}. Each reset creates between ${MIN_SEEDS} and ${MAX_SEEDS} seeds with orbit sizes spread across a wide band and slightly oval, differently oriented paths. Some paths can cross, but collisions are not forced. Press Play to reveal the finite dust supply and seeds, which initially look like the other particles. Each seed gently attracts nearby dust and grows by collecting dust that touches it. Their pull on dust strengthens with growth but is capped. Seeds gravitationally affect each other's orbits using masses based on collected material, while the star stays fixed. Seeds merge when their visible edges touch, combining mass with smooth, capped visual growth. From one minute thirty seconds, remaining dust departs outward at varied times, leaving the screen by three minutes as gas drag weakens. Dust can also escape or fade near the star. After the dust clears, rogue planets and comets arrive automatically from the edges. Up to ${MAX_ROGUE_PLANETS} rogue planets and ${MAX_COMETS} comets can be active at once. Rogue planets are dark grey, a quarter of the star's width, and tend to pass through the inner system. When a rogue and a resident touch, the resident absorbs the rogue and keeps its orbit at contact. Two rogues merge into one rogue on contact. A resident planet gains one moon on each of its first three mergers and rings on its fourth. Comet impacts remove the rings first, then one moon per hit, then the planet. Destroyed planets fade out. Contact with the star removes the comet. Reset starts fresh. Visible sizes, dust attraction, clearing motion, and time are exaggerated.`);
+  describe(`${description} Mass is ${starSettings.mass.toFixed(1)} times the Sun's. Each run starts with the maximum dust setting for the current screen size. Each reset creates between ${MIN_SEEDS} and ${MAX_SEEDS} seeds with orbit sizes spread across a wide band and slightly oval, differently oriented paths. Some paths can cross, but collisions are not forced. Press Play to reveal the finite dust supply and seeds, which initially look like the other particles. Each seed gently attracts nearby dust and grows by collecting dust that touches it. Its body keeps the size it reached when the dust cleared. Their pull on dust strengthens with growth but is capped. Seeds gravitationally affect each other's orbits using masses based on collected material, while the star stays fixed. Seeds merge when their visible edges touch and combine mass. From forty-five seconds, remaining dust departs outward at varied times, leaving the screen by one minute thirty seconds as gas drag weakens. Dust can also escape or fade near the star. After the dust clears, rogue planets and comets arrive automatically from the edges. Up to ${MAX_ROGUE_PLANETS} rogue planets and ${MAX_COMETS} comets can be active at once. Rogue planets are dark grey, a quarter of the star's width, and tend to pass through the inner system. When a rogue and a resident touch, the resident absorbs the rogue and keeps its orbit at contact. Two rogues merge into one rogue on contact. Each merger lets a resident planet gain or restore one moon, up to three. Once it has three moons, the next merger adds or restores its rings. Comet impacts remove the rings first, then one moon per hit, then the planet. Destroyed planets fade out. Contact with the star removes the comet. Reset starts fresh. Visible sizes, dust attraction, clearing motion, and time are exaggerated.`);
 
-  // Both settings define the starting system; don't spawn extra dust mid-run.
-  if (!seeds.length || starSettings.mass !== previousMass || starSettings.heavyElements !== previousComposition) resetOrbit();
+  if (!seeds.length || starSettings.mass !== previousMass) resetOrbit();
   else redraw();
 }
 
@@ -197,12 +188,12 @@ function resetOrbit() {
         y: Math.sin(phase) * radialSpeed + Math.cos(phase) * tangentialSpeed,
       },
       material: SEED_STARTING_MATERIAL,
+      dustMaterial: SEED_STARTING_MATERIAL,
       visibleMaterial: SEED_STARTING_MATERIAL,
       opacity: random(0.45, 0.65),
       planetColour: availableColours.splice(Math.floor(random(availableColours.length)), 1)[0],
       colourProgress: 0,
       collected: 0,
-      mergers: 0,
       active: true,
     };
   });
@@ -386,6 +377,7 @@ function advanceOrbit(frameSeconds) {
       position: seed.position,
       materialRatio: seed.visibleMaterial / SEED_STARTING_MATERIAL,
     }));
+    const hasDust = dustParticles.some(particle => particle.remaining > 0);
     for (const particle of dustParticles) {
       if (particle.remaining <= 0) continue;
       if (diskAgeSeconds >= particle.departureAt) {
@@ -402,14 +394,14 @@ function advanceOrbit(frameSeconds) {
       particle.remaining = Math.max(0, particle.remaining - heat * PHYSICS_STEP / YEARS_PER_SECOND / 0.6);
       if (particle.remaining > 0) collectDust(particle, view.pixelsPerAU, view.radius);
     }
-    // Ease toward collected material instead of jumping in size on each contact.
-    // Only runs while playing, and never grows beyond material already collected.
+    // Ease toward dust collected by this planet. When the disk clears, the body
+    // stays at the size it reached during formation.
     const growthBlend = -Math.expm1(-PHYSICS_STEP / YEARS_PER_SECOND / SEED_GROWTH_SECONDS);
     // Colour is a visual milestone, not a scientific planet-formation threshold.
     const colourBlend = -Math.expm1(-PHYSICS_STEP / YEARS_PER_SECOND / 2);
     for (const seed of seeds) {
-      seed.visibleMaterial += (seed.material - seed.visibleMaterial) * growthBlend;
       if (seed.isRogue) continue;
+      if (hasDust) seed.visibleMaterial += (seed.dustMaterial - seed.visibleMaterial) * growthBlend;
       const colourTarget = seed.collected >= SEED_COLOUR_THRESHOLD ? 1 : 0;
       seed.colourProgress += (colourTarget - seed.colourProgress) * colourBlend;
     }
@@ -498,7 +490,7 @@ function moveDepartingDust(particle, view) {
     };
   }
   const path = particle.departure;
-  // Account for a larger window without adding dust or leaving dust visible at 3:00.
+  // Account for a larger window while keeping the same clearing deadline.
   path.exitDistance = Math.max(path.exitDistance, exitDistance);
   const elapsed = Math.max(0, diskAgeSeconds - particle.departureAt);
   const progress = Math.min(1, elapsed / particle.departureDuration);
@@ -520,7 +512,7 @@ function getDustHeatRadius(view) {
 function getSeedRadius(seed, starRadius) {
   if (seed.isRogue) return starRadius * ROGUE_STAR_SIZE_RATIO;
   // Cube-root scaling is a simple common-density assumption, not a composition model.
-  // Ease the material first so dust collection and mergers never snap the size.
+  // Display size uses only the dust collected during formation.
   const visibleEarthMasses = seed.visibleMaterial * EARTH_MASSES_PER_MATERIAL_UNIT;
   const massRadius = PLANET_EARTH_MASS_RADIUS * Math.cbrt(visibleEarthMasses) * BODY_VISUAL_SCALE;
   // Start the same size as a dust dot, then smoothly reveal the mass-based scale
@@ -623,12 +615,11 @@ function mergeTouchingSeeds(view) {
           };
         }
         if (!survivor.isRogue) {
-          // The reward sequence follows the resident's own mergers, even after impacts.
-          survivor.mergers++;
-          if (survivor.mergers <= MAX_MOONS) {
-            survivor.moons ??= [];
+          // Rebuild defenses in order using what the survivor currently has.
+          survivor.moons ??= [];
+          if (survivor.moons.length < MAX_MOONS) {
             survivor.moons.push({ angle: random(TWO_PI), startedAt: diskAgeSeconds });
-          } else if (survivor.mergers === MAX_MOONS + 1) {
+          } else {
             survivor.hasRings = true;
           }
         }
@@ -677,6 +668,7 @@ function collectDust(particle, pixelsPerAU, starRadius) {
   if (!collector) return;
   // Heat loss reduces the material contributed; outward clearing does not fade it.
   collector.material += particle.remaining;
+  collector.dustMaterial += particle.remaining;
   collector.collected++;
   particle.remaining = 0;
   // This first growth test transfers material without changing the seed's velocity.
@@ -775,8 +767,8 @@ function createDustParticle(position) {
     opacity: random(0.25, 0.75),
     remaining: 1,
     departureAt,
-    // Leave enough flight time for a gradual exit, with every path finished by 3:00.
-    departureDuration: random(15, Math.min(35, clearingEnd - departureAt)),
+    // Give every particle time to drift off-screen before the clearing deadline.
+    departureDuration: random(7.5, Math.min(17.5, clearingEnd - departureAt)),
     departure: null,
   };
 }
@@ -790,14 +782,11 @@ function createDustCloud(view) {
     bottom: (height + padding - view.y) / view.pixelsPerAU,
   };
   const dustDensity = view.pixelsPerAU ** 2 / 1300;
-  // Add a baseline supply so low Composition still gives seeds material to find.
-  // Higher Composition adds more dust, without changing dot size or seed growth.
-  // This is a visual mapping of solid abundance, not a calibrated disk mass.
+  // Use the former maximum dust setting, scaled by the viewport's sampling area.
   const referenceCount = Math.min(1000,
     (bounds.right - bounds.left) * (bounds.bottom - bounds.top) * dustDensity);
-  // 50% more particles at every composition; each bundle still contributes the same mass.
   const count = Math.min(MAX_DUST_COUNT,
-    Math.round(referenceCount * (1.5 + starSettings.heavyElements) * 1.5));
+    Math.round(referenceCount * DUST_COUNT_MULTIPLIER));
   const particles = [];
   for (let i = 0; i < count; i++) {
     const position = { x: random(bounds.left, bounds.right), y: random(bounds.top, bounds.bottom) };
@@ -808,23 +797,15 @@ function createDustCloud(view) {
   return particles;
 }
 
-// Five mass groups and three composition groups cover all 15 descriptions.
-// These boundaries are for the interface, not exact scientific cutoffs.
-function getStarDescription(mass, composition) {
+// These five mass groups use approximate descriptions for the interface.
+function getStarDescription(mass) {
   let star = "A very hot, bright blue-white star";
   if (mass < 0.45) star = "A small, cool red star";
   else if (mass < 0.8) star = "A softly glowing orange star";
   else if (mass < 1.2) star = "A Sun-like star";
   else if (mass < 3) star = "A hot, bright white star";
 
-  let mixture = "a familiar mix of gas and dust";
-  if (composition < 0.8) mixture = "a mixture with relatively little dust";
-  else if (composition > 1.2) mixture = "a mixture with relatively more dust";
-  else if (mass >= 0.8 && mass < 1.2) {
-    return "A star like our Sun, born from a familiar mix of gas and dust.";
-  }
-
-  return `${star} born from ${mixture}.`;
+  return `${star} born from a dust-rich cloud.`;
 }
 
 function getStarColour(mass) {
