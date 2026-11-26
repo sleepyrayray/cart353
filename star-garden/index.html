@@ -13,49 +13,24 @@
   <body>
     <header class="intro">
       <h1>Star Garden</h1>
-      <p>Create a star. Watch worlds grow.</p>
+      <p>Watch worlds grow around a Sun-like star.</p>
     </header>
     <div class="sidebar">
-    <section class="controls" aria-labelledby="controls-title">
-      <h2 id="controls-title">Your star</h2>
-
-      <div class="control">
-        <div class="control-label">
-          <div class="label-help">
-            <label for="mass">Mass</label>
-            <span class="help">
-              <button class="help-button" type="button" aria-label="About mass" aria-describedby="mass-help">?</button>
-              <span id="mass-help" class="tooltip" role="tooltip">Changes your star’s size, colour, brightness, and gravitational pull.</span>
-            </span>
-          </div>
-          <output id="mass-value" for="mass">1.0× Sun</output>
-        </div>
-        <div class="slider">
-          <input id="mass" type="range" min="0.2" max="5" step="0.1" value="1" aria-describedby="mass-help">
-        </div>
-      </div>
-
-      <p id="star-description" class="star-description" aria-live="polite">A Sun-like star born from a dust-rich cloud.</p>
-
-      <div class="orbit-test">
-        <div class="playback" role="group" aria-label="Simulation playback">
+      <section class="controls" aria-label="Simulation playback">
+        <div class="playback">
           <button id="play" type="button">Play</button>
           <button id="pause" type="button" disabled>Pause</button>
           <button id="reset" type="button">Reset</button>
         </div>
-        <div class="playback-info">
-          <p id="orbit-status" class="orbit-status" role="status">Ready</p>
-          <p class="elapsed-time">Time: <span id="elapsed-time" role="timer" aria-live="off">0:00</span></p>
-        </div>
-      </div>
-    </section>
-    <section id="planet-info" class="planet-info" aria-labelledby="planet-info-title" hidden>
-      <h2 id="planet-info-title">Your planet</h2>
-      <dl>
-        <div><dt>Distance from star</dt><dd id="planet-distance"></dd></div>
-        <div><dt>Year length</dt><dd id="planet-year"></dd></div>
-      </dl>
-    </section>
+        <p class="elapsed-time">Time: <span id="elapsed-time" role="timer" aria-live="off">0:00</span></p>
+      </section>
+      <section id="planet-info" class="planet-info" aria-labelledby="planet-info-title" hidden>
+        <h2 id="planet-info-title">Your planet</h2>
+        <dl>
+          <div><dt>Distance from star</dt><dd id="planet-distance"></dd></div>
+          <div><dt>Year length</dt><dd id="planet-year"></dd></div>
+        </dl>
+      </section>
     </div>
     <main id="space" aria-label="Star Garden simulation"></main>
   </body>
