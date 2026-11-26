@@ -10,6 +10,7 @@ const DUST_FADE_SECONDS = 1.2;
 const BODY_VISUAL_SCALE = 1.5;
 const SEED_STARTING_MATERIAL = 4;
 const SEED_DUST_RADIUS = 1.1;
+const SEED_DUST_VISUAL_GAIN = 1.15;
 // Display radius for one Earth mass, before the shared visual scale.
 // Deliberately enlarged for readability, not to scale with the star or distances.
 const PLANET_EARTH_MASS_RADIUS = 7.5;
@@ -26,7 +27,7 @@ const MAX_ROGUE_PLANETS = 20;
 const MAX_COMETS = 5;
 const VISITOR_ARRIVAL_INTERVAL = [0.75, 1.5];
 const VISITOR_EDGE_OFFSET = 2;
-const ROGUE_STAR_SIZE_RATIO = 0.10;
+const ROGUE_STAR_SIZE_RATIO = 0.20;
 const ROGUE_COLOUR = [85, 85, 85];
 const ROGUE_CLOSEST_APPROACH_RANGE = [0.2, 0.7];
 const COMET_CORE_RADIUS = 3;
@@ -66,9 +67,9 @@ const planetColours = [
   [174, 54, 80], // cranberry
 ];
 // Compressed disk evolution for the experience, not real astronomical timescales.
-const DISK_CLEARING_START_SECONDS = 45;
-const DISK_CLEARING_DURATION_SECONDS = 45;
-const LAST_DUST_DEPARTURE_SECONDS = 80;
+const DISK_CLEARING_START_SECONDS = 30;
+const DISK_CLEARING_END_SECONDS = 90;
+const LAST_DUST_DEPARTURE_START_SECONDS = 65;
 
 let dustParticles = [];
 let seeds = [];
@@ -98,7 +99,7 @@ function setup() {
   document.addEventListener("visibilitychange", () => {
     if (document.hidden && isPlaying) pauseOrbit();
   });
-  describe(`A Sun-like star born from a dust-rich cloud. Its mass is the same as the Sun's. Each run starts with the maximum dust setting for the current screen size. Each reset creates between ${MIN_SEEDS} and ${MAX_SEEDS} seeds with orbit sizes spread across a wide band and slightly oval, differently oriented paths. Some paths can cross, but collisions are not forced. Press Play to reveal the finite dust supply and seeds, which initially look like the other particles. Each seed gently attracts nearby dust and grows by collecting dust that touches it. Its body keeps the size it reached when the dust cleared. Their pull on dust strengthens with growth but is capped. Seeds gravitationally affect each other's orbits using masses based on collected material, while the star stays fixed. Seeds merge when their visible edges touch and combine mass. From forty-five seconds, remaining dust departs outward at varied times, leaving the screen by one minute thirty seconds as gas drag weakens. Dust can also escape or fade near the star. After the dust clears, rogue planets and comets arrive automatically from the edges. Up to ${MAX_ROGUE_PLANETS} rogue planets and ${MAX_COMETS} comets can be active at once. Rogue planets are dark grey, ${Math.round(ROGUE_STAR_SIZE_RATIO * 100)}% of the star's width, and tend to pass through the inner system. When a rogue and a resident touch, the resident absorbs the rogue and keeps its orbit at contact. Two rogues merge into one rogue on contact. Each merger lets a resident planet gain or restore one moon, up to three. Once it has three moons, the next merger adds or restores its rings. Two regular comets merge into one comet twice the normal width. If a big comet hits another comet, one big comet continues unchanged and the other disappears. A regular comet takes one life and a merged comet takes up to two. Impacts remove the rings first, then moons one at a time, then the planet. Destroyed planets fade out. Contact with the star removes the comet. Reset starts fresh. Visible sizes, dust attraction, clearing motion, and time are exaggerated.`);
+  describe(`A Sun-like star born from a dust-rich cloud. Its mass is the same as the Sun's. Each run starts with the maximum dust setting for the current screen size. Each reset creates between ${MIN_SEEDS} and ${MAX_SEEDS} seeds with orbit sizes spread across a wide band and slightly oval, differently oriented paths. Some paths can cross, but collisions are not forced. Press Play to reveal the finite dust supply and seeds, which initially look like the other particles. Each seed gently attracts nearby dust and grows by collecting dust that touches it. Its body keeps the size it reached when the dust cleared. Their pull on dust strengthens with growth but is capped. Seeds gravitationally affect each other's orbits using masses based on collected material, while the star stays fixed. Seeds merge when their visible edges touch and combine mass. Between residents, the planet with more protection survives, counting one layer per moon or ring. If both have equal protection, either can survive. Size decides only when neither has protection. From thirty seconds, leftover dust gradually drifts outward and off the screen at staggered times. All dust is gone by one minute thirty seconds. After the dust clears, rogue planets and comets arrive automatically from the edges. Up to ${MAX_ROGUE_PLANETS} rogue planets and ${MAX_COMETS} comets can be active at once. Rogue planets are dark grey, ${Math.round(ROGUE_STAR_SIZE_RATIO * 100)}% of the star's width, and tend to pass through the inner system. When a rogue and a resident touch, the resident absorbs the rogue and keeps its orbit at contact. Two rogues merge into one rogue on contact. Each merger lets a resident planet gain or restore one moon, up to three. Once it has three moons, the next merger adds or restores its rings. Two regular comets merge into one comet twice the normal width. If a big comet hits another comet, one big comet continues unchanged and the other disappears. A regular comet takes one life and a merged comet takes up to two. Impacts remove the rings first, then moons one at a time, then the planet. Destroyed planets fade out. Contact with the star removes the comet. Reset starts fresh. Visible sizes, dust attraction, clearing motion, and time are exaggerated.`);
   resetOrbit();
 }
 
@@ -377,10 +378,13 @@ function advanceOrbit(frameSeconds) {
   const view = getSpaceView();
   const surfaceRadius = view.radius / view.pixelsPerAU;
   const heatRadius = getDustHeatRadius(view);
+  const farthestCorner = Math.hypot(Math.max(view.x, width - view.x), Math.max(view.y, height - view.y));
+  const dustExitDistance = (farthestCorner + 80) / view.pixelsPerAU;
   while (timeAccumulator + 1e-12 >= PHYSICS_STEP) {
     diskAgeSeconds += PHYSICS_STEP / YEARS_PER_SECOND;
     const clearing = Math.max(0, Math.min(1,
-      (diskAgeSeconds - DISK_CLEARING_START_SECONDS) / DISK_CLEARING_DURATION_SECONDS));
+      (diskAgeSeconds - DISK_CLEARING_START_SECONDS)
+        / (DISK_CLEARING_END_SECONDS - DISK_CLEARING_START_SECONDS)));
     const gasAmount = 1 - smoothProgress(clearing);
     const cometTargets = comets.some(comet => comet.active)
       ? seeds.filter(seed => seed.active).map(seed => ({ seed, start: { ...getSeedDisplayPosition(seed) } }))
@@ -403,8 +407,8 @@ function advanceOrbit(frameSeconds) {
     const hasDust = dustParticles.some(particle => particle.remaining > 0);
     for (const particle of dustParticles) {
       if (particle.remaining <= 0) continue;
-      if (diskAgeSeconds >= particle.departureAt) {
-        moveDepartingDust(particle, view);
+      if (diskAgeSeconds >= particle.departureStart) {
+        moveDepartingDust(particle, dustExitDistance);
         if (particle.remaining > 0) collectDust(particle, view.pixelsPerAU, view.radius);
         continue;
       }
@@ -497,11 +501,8 @@ function smoothProgress(amount) {
   return progress * progress * (3 - 2 * progress);
 }
 
-function moveDepartingDust(particle, view) {
-  // A timed, wind-inspired clearing animation, not a computed radiation force.
-  // Normal gravity and gas drag govern dust until its individual departure begins.
-  const farthestCorner = Math.hypot(Math.max(view.x, width - view.x), Math.max(view.y, height - view.y));
-  const exitDistance = (farthestCorner + 80) / view.pixelsPerAU;
+function moveDepartingDust(particle, exitDistance) {
+  // Stylized clearing: ease outward from the particle's current orbit.
   if (!particle.departure) {
     const { x, y } = particle.position;
     const radius = Math.max(0.000001, Math.hypot(x, y));
@@ -509,20 +510,20 @@ function moveDepartingDust(particle, view) {
       radius,
       angle: Math.atan2(y, x),
       angularSpeed: (x * particle.velocity.y - y * particle.velocity.x) / radius ** 2 * YEARS_PER_SECOND,
+      startedAt: diskAgeSeconds,
       exitDistance: Math.max(radius + 1, exitDistance),
     };
   }
   const path = particle.departure;
-  // Account for a larger window while keeping the same clearing deadline.
+  // A larger viewport can extend the path without changing the finish time.
   path.exitDistance = Math.max(path.exitDistance, exitDistance);
-  const elapsed = Math.max(0, diskAgeSeconds - particle.departureAt);
-  const progress = Math.min(1, elapsed / particle.departureDuration);
+  const elapsed = diskAgeSeconds - path.startedAt;
+  const progress = Math.min(1, elapsed / (particle.departureEnd - path.startedAt));
   const radius = path.radius + (path.exitDistance - path.radius) * smoothProgress(progress);
-  // Retain its orbit direction at first, then gradually unwind into outward travel.
-  const angle = path.angle + path.angularSpeed * elapsed * (1 - progress / 2);
+  // Keep the same direction and angular speed at the start, then gently wind down.
+  const angle = path.angle + path.angularSpeed * elapsed * (1 - 0.5 * progress);
   particle.position.x = Math.cos(angle) * radius;
   particle.position.y = Math.sin(angle) * radius;
-  // Removal happens beyond every screen edge, never as an on-screen clearing fade.
   if (progress >= 1) particle.remaining = 0;
 }
 
@@ -535,12 +536,12 @@ function getDustHeatRadius(view) {
 function getSeedRadius(seed, starRadius) {
   if (seed.isRogue) return starRadius * ROGUE_STAR_SIZE_RATIO;
   // Cube-root scaling is a simple common-density assumption, not a composition model.
-  // Display size uses only the dust collected during formation.
-  const visibleEarthMasses = seed.visibleMaterial * EARTH_MASSES_PER_MATERIAL_UNIT;
+  // Give collected dust a small visual boost without changing its physical mass.
+  const acquired = Math.max(0, seed.visibleMaterial - SEED_STARTING_MATERIAL) * SEED_DUST_VISUAL_GAIN;
+  const visibleEarthMasses = (SEED_STARTING_MATERIAL + acquired) * EARTH_MASSES_PER_MATERIAL_UNIT;
   const massRadius = PLANET_EARTH_MASS_RADIUS * Math.cbrt(visibleEarthMasses) * BODY_VISUAL_SCALE;
   // Start the same size as a dust dot, then smoothly reveal the mass-based scale
-  // over the first seven full material bundles. No extra growth just from waiting.
-  const acquired = Math.max(0, seed.visibleMaterial - SEED_STARTING_MATERIAL);
+  // as it collects its first few bundles of dust.
   const emergence = smoothProgress(acquired / SEED_EMERGENCE_MATERIAL);
   const grownRadius = SEED_DUST_RADIUS + (massRadius - SEED_DUST_RADIUS) * emergence;
   return Math.min(grownRadius, starRadius * SEED_MAX_STAR_RATIO);
@@ -598,6 +599,16 @@ function drawMergerAnimations(context, view, dustOpacity) {
   }
 }
 
+function firstPlanetSurvives(first, second, firstRadius, secondRadius) {
+  if (first.isRogue && second.isRogue) return first.material >= second.material;
+  if (first.isRogue || second.isRogue) return !first.isRogue;
+
+  const firstProtection = (first.moons?.length ?? 0) + (first.hasRings ? 1 : 0);
+  const secondProtection = (second.moons?.length ?? 0) + (second.hasRings ? 1 : 0);
+  if (firstProtection !== secondProtection) return firstProtection > secondProtection;
+  return firstProtection === 0 ? firstRadius >= secondRadius : random() < 0.5;
+}
+
 function mergeTouchingSeeds(view) {
   // Contact uses the drawn edges, not the larger dust-attraction reach.
   // Restart after a merge: the new centre of mass might touch a third body.
@@ -615,11 +626,8 @@ function mergeTouchingSeeds(view) {
         const contactDistance = (firstRadius + secondRadius) / view.pixelsPerAU;
         if (Math.hypot(first.position.x - second.position.x,
           first.position.y - second.position.y) > contactDistance) continue;
-        // Residents take priority in mixed encounters. Rogues have equal display sizes.
         const bothRogues = first.isRogue && second.isRogue;
-        const firstSurvives = bothRogues
-          ? first.material >= second.material
-          : second.isRogue || (!first.isRogue && firstRadius >= secondRadius);
+        const firstSurvives = firstPlanetSurvives(first, second, firstRadius, secondRadius);
         const survivor = firstSurvives ? first : second;
         const absorbed = survivor === first ? second : first;
         const absorbedPosition = { ...getSeedDisplayPosition(absorbed) };
@@ -689,7 +697,7 @@ function collectDust(particle, pixelsPerAU, starRadius) {
     }
   }
   if (!collector) return;
-  // Heat loss reduces the material contributed; outward clearing does not fade it.
+  // Heat loss reduces the material contributed; outward drift does not.
   collector.material += particle.remaining;
   collector.dustMaterial += particle.remaining;
   collector.collected++;
@@ -777,9 +785,9 @@ function createDustParticle(position) {
     };
     dragCoupling = random(3, 8);
   }
-  // Initial conditions only: gravity and gas drag determine subsequent motion.
-  const departureAt = random(DISK_CLEARING_START_SECONDS, LAST_DUST_DEPARTURE_SECONDS);
-  const clearingEnd = DISK_CLEARING_START_SECONDS + DISK_CLEARING_DURATION_SECONDS;
+  // Stagger both ends of the outward drift so the disk never moves as one sheet.
+  const departureStart = random(DISK_CLEARING_START_SECONDS, LAST_DUST_DEPARTURE_START_SECONDS);
+  const departureEnd = random(Math.max(60, departureStart + 22), DISK_CLEARING_END_SECONDS);
   return {
     position,
     velocity,
@@ -787,9 +795,8 @@ function createDustParticle(position) {
     dragCoupling,
     opacity: random(0.25, 0.75),
     remaining: 1,
-    departureAt,
-    // Give every particle time to drift off-screen before the clearing deadline.
-    departureDuration: random(7.5, Math.min(17.5, clearingEnd - departureAt)),
+    departureStart,
+    departureEnd,
     departure: null,
   };
 }
