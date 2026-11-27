@@ -91,7 +91,6 @@ const LAST_DUST_DEPARTURE_START_SECONDS = 100;
 
 let dustParticles = [];
 let seeds = [];
-let selectedSeed = null;
 let roguePlanets = [];
 let comets = [];
 let laserShots = [];
@@ -106,15 +105,22 @@ let timeAccumulator = 0;
 let lastFrameTime = 0;
 
 function setup() {
-  const canvas = createCanvas(windowWidth, windowHeight);
-  canvas.parent("space");
-  canvas.elt.addEventListener("click", selectPlanet);
+  const space = document.getElementById("space");
+  const canvas = createCanvas(Math.max(1, space.clientWidth), Math.max(1, space.clientHeight));
+  canvas.parent(space);
   pixelDensity(min(displayDensity(), 2));
   noLoop();
 
-  document.getElementById("play").addEventListener("click", playOrbit);
-  document.getElementById("pause").addEventListener("click", pauseOrbit);
-  document.getElementById("reset").addEventListener("click", resetOrbit);
+  document.getElementById("play-pause").addEventListener("click", togglePlayback);
+  document.getElementById("reset").addEventListener("click", restartOrbit);
+  // The canvas fills the space above the controls, even when the bar resizes.
+  new ResizeObserver(() => {
+    const spaceWidth = Math.max(1, space.clientWidth);
+    const spaceHeight = Math.max(1, space.clientHeight);
+    if (width === spaceWidth && height === spaceHeight) return;
+    resizeCanvas(spaceWidth, spaceHeight, true);
+    if (!isPlaying) redraw();
+  }).observe(space);
   document.addEventListener("visibilitychange", () => {
     if (document.hidden && isPlaying) pauseOrbit();
   });
@@ -123,8 +129,21 @@ function setup() {
 }
 
 function updatePlaybackControls() {
-  document.getElementById("play").disabled = isPlaying;
-  document.getElementById("pause").disabled = !isPlaying;
+  const playback = document.getElementById("play-pause");
+  const label = isPlaying ? "Pause" : "Play";
+  playback.dataset.playing = String(isPlaying);
+  playback.setAttribute("aria-label", label);
+}
+
+function togglePlayback() {
+  if (isPlaying) pauseOrbit();
+  else playOrbit();
+}
+
+function restartOrbit() {
+  const wasPlaying = isPlaying;
+  resetOrbit();
+  if (wasPlaying) playOrbit();
 }
 
 function playOrbit() {
@@ -145,7 +164,6 @@ function pauseOrbit() {
 function resetOrbit() {
   isPlaying = false;
   noLoop();
-  selectedSeed = null;
   roguePlanets = [];
   comets = [];
   laserShots = [];
@@ -153,7 +171,6 @@ function resetOrbit() {
   nextCometAt = null;
   mergerAnimations = [];
   planetFades = [];
-  updatePlanetInfo();
   const view = getSpaceView();
   // Generate the complete material supply once. Nothing replenishes it mid-run.
   dustParticles = createDustCloud(view);
@@ -507,8 +524,7 @@ function advanceLaserShots(view, surfaceRadius, planets, cometMotions) {
 
 function advanceOrbit(frameSeconds) {
   // Fixed physics steps keep the orbits independent of drawing speed.
-  // Cap long stalls instead of making the dust leap forward after them.
-  timeAccumulator += Math.min(frameSeconds, 0.25) * YEARS_PER_SECOND;
+  timeAccumulator += frameSeconds * YEARS_PER_SECOND;
   const view = getSpaceView();
   const surfaceRadius = view.radius / view.pixelsPerAU;
   const heatRadius = getDustHeatRadius(view);
@@ -582,56 +598,6 @@ function updateElapsedTime() {
   const elapsed = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
   const timer = document.getElementById("elapsed-time");
   if (timer.textContent !== elapsed) timer.textContent = elapsed;
-}
-
-function selectPlanet(event) {
-  // Listen only on the canvas so using the controls never changes selection.
-  const bounds = event.currentTarget.getBoundingClientRect();
-  const clickX = (event.clientX - bounds.left) * width / bounds.width;
-  const clickY = (event.clientY - bounds.top) * height / bounds.height;
-  const view = getSpaceView();
-  selectedSeed = null;
-  let closest = Infinity;
-  // Any revealed planet can be selected, including during formation or while paused.
-  // Allow a small click margin for tiny seeds; don't select invisible ones before Play.
-  if (dustRevealTime > 0) {
-    const entryBounds = roguePlanets.some(body => body.entering) ? getVisitorScreenBounds() : null;
-    for (const seed of seeds) {
-      if (!seed.active) continue;
-      if (seed.entering && (clickX < entryBounds.left || clickX > entryBounds.right
-        || clickY < entryBounds.top || clickY > entryBounds.bottom)) continue;
-      const position = getSeedDisplayPosition(seed);
-      const x = view.x + position.x * view.pixelsPerAU;
-      const y = view.y + position.y * view.pixelsPerAU;
-      const distance = Math.hypot(clickX - x, clickY - y);
-      const radius = getSeedRadius(seed, view.radius);
-      const targetRadius = seed.entering ? radius : Math.max(8, radius);
-      if (distance <= targetRadius && distance < closest) {
-        selectedSeed = seed;
-        closest = distance;
-      }
-    }
-  }
-  updatePlanetInfo();
-  if (!isPlaying) redraw();
-}
-
-function updatePlanetInfo() {
-  if (selectedSeed && !selectedSeed.active) selectedSeed = null;
-  const panel = document.getElementById("planet-info");
-  panel.hidden = !selectedSeed;
-  if (!selectedSeed) return;
-  const seed = selectedSeed;
-  const distance = Math.hypot(seed.position.x, seed.position.y);
-  const period = getOrbitalPeriod(seed, STAR_MASS);
-  const values = {
-    "planet-distance": `${distance.toFixed(2)} AU`,
-    "planet-year": period === null ? "No closed orbit" : `${Math.round(period * 100)}% of Earth’s`,
-  };
-  for (const [id, value] of Object.entries(values)) {
-    const field = document.getElementById(id);
-    if (field.textContent !== value) field.textContent = value;
-  }
 }
 
 function smoothProgress(amount) {
@@ -866,7 +832,6 @@ function mergeTouchingSeeds(view) {
           survivor.entering = first.entering && second.entering;
           survivor.hasEnteredScreen = first.hasEnteredScreen || second.hasEnteredScreen;
         }
-        if (selectedSeed === absorbed) selectedSeed = survivor;
         if (Math.hypot(survivor.position.x, survivor.position.y)
           <= view.radius / view.pixelsPerAU) destroyPlanet(survivor, view);
         merged = true;
@@ -903,13 +868,8 @@ function collectDust(particle, pixelsPerAU, starRadius) {
 }
 
 function getSpaceView() {
-  const panel = document.querySelector(".controls").getBoundingClientRect();
-  const header = document.querySelector(".intro").getBoundingClientRect();
-  const compact = width <= 640;
-  const left = compact ? 0 : panel.right;
-  const top = compact ? header.bottom : 0;
-  const bottom = compact ? panel.top : height;
-  const availableSpace = Math.max(0, Math.min(width - left, bottom - top));
+  // Centre the system in the canvas above the console.
+  const availableSpace = Math.min(width, height);
   const basePixelsPerAU = Math.max(12, Math.min(112, availableSpace * 0.144));
   const baseRadius = Math.min(100, availableSpace * 0.16) * STAR_DISPLAY_FACTOR / 2.5 * BODY_VISUAL_SCALE;
   const heatRadius = Math.max(baseRadius / basePixelsPerAU * 2, 0.12 * STAR_MASS ** 1.75);
@@ -930,8 +890,8 @@ function getSpaceView() {
   const outerSeedOrbit = Math.min(seedOrbitBase * SEED_OUTER_ORBIT_FACTOR,
     Math.max(seedOrbitBase * 2, visibleOrbitLimit));
   return {
-    x: (left + width) / 2,
-    y: (top + bottom) / 2,
+    x: width / 2,
+    y: height / 2,
     pixelsPerAU,
     radius,
     innerSeedOrbit: seedOrbitBase * SEED_INNER_ORBIT_FACTOR,
@@ -1187,7 +1147,7 @@ function drawSpaceBodies(context, view, dustOpacity) {
       seed.entering = seedX - seedRadius < left || seedX + seedRadius > right
         || seedY - seedRadius < top || seedY + seedRadius > bottom;
       if (seed.entering) {
-        // Reveal only the part that has crossed the browser edge, not a panel edge.
+        // Reveal only the part that has crossed into the simulation area.
         context.save();
         context.beginPath();
         context.rect(left, top, right - left, bottom - top);
@@ -1195,13 +1155,6 @@ function drawSpaceBodies(context, view, dustOpacity) {
       }
     }
     drawPlanetBody(context, seedX, seedY, seedRadius, getSeedAppearance(seed), seed, dustOpacity);
-    if (seed === selectedSeed) {
-      context.strokeStyle = "#f2cf9c";
-      context.lineWidth = 1;
-      context.beginPath();
-      context.arc(seedX, seedY, seedRadius + 4, 0, Math.PI * 2);
-      context.stroke();
-    }
     if (seed.entering) context.restore();
   }
 }
@@ -1209,6 +1162,7 @@ function drawSpaceBodies(context, view, dustOpacity) {
 function draw() {
   if (isPlaying) {
     const now = performance.now();
+    // Limit catch-up after a stall instead of making the simulation jump ahead.
     const frameSeconds = Math.min((now - lastFrameTime) / 1000, 0.25);
     advanceOrbit(frameSeconds);
     dustRevealTime = Math.min(DUST_FADE_SECONDS, dustRevealTime + frameSeconds);
@@ -1216,7 +1170,6 @@ function draw() {
   }
   const view = getSpaceView();
   updateVisitors(view);
-  updatePlanetInfo();
   background("#0b0d16");
   if (view.radius <= 0) return;
 
@@ -1226,10 +1179,4 @@ function draw() {
   if (dustOpacity > 0) drawSpaceBodies(context, view, dustOpacity);
   // Draw the star last, so bodies and their fade animations pass behind it.
   drawStar(context, view);
-}
-
-function windowResized() {
-  resizeCanvas(windowWidth, windowHeight);
-  // Resizing changes the view only; it must never introduce extra material.
-  redraw();
 }

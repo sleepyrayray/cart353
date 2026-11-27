@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Star Garden</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Silkscreen&amp;display=swap">
     <link rel="stylesheet" href="css/style.css">
     <script src="js/libraries/p5.min.js" defer></script>
     <!-- p5.sound.min.js is kept in js/libraries for when sound is added. -->
@@ -11,27 +14,33 @@
     <script src="js/script.js" defer></script>
   </head>
   <body>
-    <header class="intro">
-      <h1>Star Garden</h1>
-      <p>Watch worlds grow around a Sun-like star.</p>
-    </header>
-    <div class="sidebar">
-      <section class="controls" aria-label="Simulation playback">
-        <div class="playback">
-          <button id="play" type="button">Play</button>
-          <button id="pause" type="button" disabled>Pause</button>
-          <button id="reset" type="button">Reset</button>
-        </div>
-        <p class="elapsed-time">Time: <span id="elapsed-time" role="timer" aria-live="off">0:00</span></p>
-      </section>
-      <section id="planet-info" class="planet-info" aria-labelledby="planet-info-title" hidden>
-        <h2 id="planet-info-title">Your planet</h2>
-        <dl>
-          <div><dt>Distance from star</dt><dd id="planet-distance"></dd></div>
-          <div><dt>Year length</dt><dd id="planet-year"></dd></div>
-        </dl>
-      </section>
-    </div>
     <main id="space" aria-label="Star Garden simulation"></main>
+    <section class="controls" aria-label="Simulation console">
+      <section class="message-screen" aria-labelledby="system-messages-heading">
+        <h2 id="system-messages-heading">System messages</h2>
+        <div id="system-messages" role="log" aria-labelledby="system-messages-heading"></div>
+      </section>
+      <div class="playback" role="group" aria-label="Playback controls">
+        <button id="play-pause" type="button" data-playing="false" aria-label="Play">
+          <svg class="icon-play" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor">
+            <path d="M8 5v14l11-7z"/>
+          </svg>
+          <svg class="icon-pause" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor">
+            <rect x="7" y="5" width="3.5" height="14" rx="1"/>
+            <rect x="13.5" y="5" width="3.5" height="14" rx="1"/>
+          </svg>
+        </button>
+        <button id="reset" type="button" aria-label="Reset">
+          <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor"
+            stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 11a8 8 0 1 0-.8 5.5M20 5v6h-6"/>
+          </svg>
+        </button>
+        <p class="elapsed-time">
+          <span class="timer-label">Time</span>
+          <span id="elapsed-time" role="timer" aria-live="off">0:00</span>
+        </p>
+      </div>
+    </section>
   </body>
 </html>

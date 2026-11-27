@@ -12,9 +12,7 @@ Keep the planets that form from dust colourful, each with its own colour. Colour
 
 Start every run at the maximum dust setting for the current screen size, capped at 6,750 particles. Dust starts across the screen and beyond its edges because concentrating it on-screen made the simulation laggy. From about 0:30, leftover particles ease out of their orbits in loose outward arcs and keep moving past the edges. Stagger the exits so the last dust can stay visible close to 2:00. Pausing stops the timer too.
 
-Planets are clickable during formation too, even while dust is still around or playback is paused. The panel sits below the playback controls and shows distance in AU and year length as a percentage of Earth's year. 100% means one Earth year. The year length is an estimate from the current orbit and star mass, so it can change after an encounter; an unbound planet shows No closed orbit instead. Leave mass and merger count out. Clicking empty space hides the panel.
-
-Once the timer reaches 2:00 and all the dust is gone, rogue planets start arriving automatically. Comets wait until 30 seconds of active playback after the first rogue enters the screen. Both slide in from just outside a random browser edge. Up to 40 rogues and 5 comets can be active at once, including arrivals still entering. Each type has its own 0.75–1.5 second arrival timer when slots are open. A visitor frees its slot when it leaves the screen, hits the star, or is removed in an encounter. Pause freezes the encounters and arrival timers. Reset starts everything over.
+Once the timer reaches 2:00 and all the dust is gone, rogue planets start arriving automatically. Comets wait until 30 seconds of active playback after the first rogue enters the screen. Both slide in from a random edge of the simulation. The top of the controls bar is the bottom edge. Up to 40 rogues and 5 comets can be active at once, including arrivals still entering. Each type has its own 0.75–1.5 second arrival timer when slots are open. A visitor frees its slot when it leaves the screen, hits the star, or is removed in an encounter. Pause freezes the encounters and arrival timers. Reset starts everything over.
 
 Comets have small red cores and red trails that shrink and fade. Their speeds still vary, but their whole flight is a bit faster. Planetary gravity is exaggerated so their flybys are easier to see. When two regular comets touch, they merge into one that's twice the normal width and starts at twice their average speed at contact. If a big comet hits another comet, big or small, one big comet keeps going with the same size, path, and damage. The other disappears and frees a comet slot.
 
@@ -38,11 +36,11 @@ Then just watch what happens. Planets might change orbits, crash, merge, or get 
 
 1. Research as needed. The research notes are saved outside the repo. Refer back to them when adding something new, especially the incoming objects and what they can do.
 
-2. Keep the basics working. Leave just Play, Pause, Reset, and the timer in the controls panel.
+2. Keep the screen simple. Centre the Sun above the bottom controls bar. Keep the message screen on the left and Play/Pause, Reset, and the timer close to it on the right. Reset starts a fresh run at 0:00 and keeps the current play or pause state. Cap the screen at 580 px and centre the whole group on wide windows. Use flat navy colours and Silkscreen for the retro look. Leave the message screen empty until the logs are ready and stick to normal playback speed.
 
 3. Make formation easier to follow. Growing seeds, shared dust, gravity, and mergers are working. Keep adjusting the pacing and visuals without making it laggy.
 
-4. Keep encounters tied to dust clearing. Rogues arrive after 2:00 and all dust is gone. Give them 30 seconds on their own before comets arrive. Clicking planets and checking their info stays available during formation too.
+4. Keep encounters tied to dust clearing. Rogues arrive after 2:00 and all dust is gone. Give them 30 seconds on their own before comets arrive.
 
 5. Try the encounters. Check that the glow and laser defense each take 30 seconds to earn, that comets strip layers in reverse, and that lasers can hit rogues without targeting them.
 

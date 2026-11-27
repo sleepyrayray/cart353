@@ -8,21 +8,21 @@ body {
   overflow: hidden;
   background: #0b0d16;
   color: #f4f1e8;
-  font-family: Arial, sans-serif;
+  font-family: "Silkscreen", "Courier New", monospace;
 }
 
-.intro {
-  position: absolute;
-  top: 24px;
-  left: 24px;
-  right: 24px;
-  z-index: 1;
-  pointer-events: none;
+body {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  height: 100vh;
+  height: 100dvh;
 }
 
-h1 {
-  margin: 0 0 8px;
-  font-size: 24px;
+#space {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 p {
@@ -36,116 +36,114 @@ canvas {
   display: block;
 }
 
-.sidebar {
-  position: absolute;
-  top: 112px;
-  left: 24px;
-  z-index: 1;
-  width: 300px;
-  max-height: calc(100dvh - 136px);
-  overflow-y: auto;
-}
-
 .controls {
-  padding: 20px;
-  border: 1px solid #2c3040;
-  border-radius: 12px;
-  background: #121522;
+  --bar-padding: clamp(18px, 3.2dvh, 28px);
+  display: grid;
+  grid-template-columns: minmax(0, 580px) max-content;
+  justify-content: center;
+  column-gap: clamp(10px, 2vw, 17px);
+  align-items: center;
+  padding-block: var(--bar-padding) max(var(--bar-padding), env(safe-area-inset-bottom));
+  padding-inline: clamp(12px, calc(10vw - 56px), 96px);
+  border-top: 1px solid #27536f;
+  background: #0d1c35;
 }
 
 .playback button:focus-visible {
-  outline: 2px solid #f2cf9c;
-  outline-offset: 5px;
+  outline: 2px solid #a8f4ff;
+  outline-offset: 3px;
 }
 
 .playback {
   display: flex;
-  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: clamp(6px, 1.8vw, 15px);
 }
 
 .playback button {
-  flex: 1;
-  padding: 9px 0;
-  border: 1px solid #414659;
-  border-radius: 6px;
-  background: #202536;
-  color: #f4f1e8;
-  font: inherit;
-  font-size: 13px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: clamp(40px, 7vw, 54px);
+  aspect-ratio: 1;
+  padding: 0;
+  border: 1px solid #346991;
+  border-radius: 50%;
+  background: #142944;
+  color: #c7edff;
   cursor: pointer;
 }
 
-.playback button:hover:not(:disabled) {
-  border-color: #f2cf9c;
+.playback svg {
+  width: 22px;
+  height: 22px;
 }
 
-.playback button:disabled {
-  opacity: 0.4;
-  cursor: default;
+.playback button:hover {
+  border-color: #58d1ef;
+  color: #ecfbff;
+}
+
+#play-pause[data-playing="true"] .icon-play,
+#play-pause[data-playing="false"] .icon-pause {
+  display: none;
 }
 
 .elapsed-time {
-  margin-top: 12px;
-  text-align: right;
-  font-size: 12px;
+  margin-inline-start: clamp(1px, 1vw, 8px);
+  text-align: left;
+  font-size: clamp(14px, 2.4vw, 20px);
   font-variant-numeric: tabular-nums;
+  color: #d5f3ff;
+  white-space: nowrap;
 }
 
-.planet-info {
-  margin-top: 16px;
-  padding: 20px;
-  border: 1px solid #414659;
-  border-radius: 12px;
-  background: #121522;
+.timer-label {
+  display: block;
+  color: #9cbddb;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
 }
 
-.planet-info h2 {
+.message-screen {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 5px;
+  min-width: 0;
+  height: clamp(52px, 8dvh, 74px);
+  padding: 8px clamp(8px, 1.5vw, 16px);
+  border: 1px solid #27536f;
+  border-radius: 9px;
+  background: #091424;
+  color: #d5f3ff;
+}
+
+.message-screen h2 {
   margin: 0;
-  font-size: 16px;
+  color: #9cbddb;
+  font-size: clamp(10px, 1.4vw, 13px);
+  font-weight: 400;
+  line-height: 1.4;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
-.planet-info dl {
-  margin: 16px 0 0;
-  font-size: 12px;
-  line-height: 1.5;
+#system-messages {
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  font-size: clamp(11px, 1.5vw, 15px);
+  line-height: 1.4;
 }
 
-.planet-info dl div {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 8px;
-}
-
-.planet-info dt {
-  color: #b9bbc8;
-}
-
-.planet-info dd {
-  margin: 0;
-  text-align: right;
-  color: #f2cf9c;
-  font-variant-numeric: tabular-nums;
-}
-
-@media (max-width: 640px) {
-  .intro {
-    top: 20px;
-    left: 20px;
-    right: 20px;
+@media (max-width: 350px) {
+  .playback button {
+    width: 36px;
   }
 
-  .sidebar {
-    top: auto;
-    bottom: 20px;
-    left: 20px;
-    right: 20px;
-    width: auto;
-    max-height: 56dvh;
-  }
-
-  .controls,
-  .planet-info {
-    padding: 16px;
+  .playback svg {
+    width: 19px;
+    height: 19px;
   }
 }
