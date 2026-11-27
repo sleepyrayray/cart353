@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Star Garden</title>
+    <title>Planet Wars</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Silkscreen&amp;display=swap">
@@ -11,14 +11,17 @@
     <script src="js/libraries/p5.min.js" defer></script>
     <!-- p5.sound.min.js is kept in js/libraries for when sound is added. -->
     <script src="js/physics.js" defer></script>
+    <script src="js/messages.js" defer></script>
     <script src="js/script.js" defer></script>
   </head>
   <body>
-    <main id="space" aria-label="Star Garden simulation"></main>
+    <main id="space" aria-label="Planet Wars simulation"></main>
     <section class="controls" aria-label="Simulation console">
-      <section class="message-screen" aria-labelledby="system-messages-heading">
-        <h2 id="system-messages-heading">System messages</h2>
-        <div id="system-messages" role="log" aria-labelledby="system-messages-heading"></div>
+      <section class="message-screen" aria-label="System messages">
+        <div id="system-messages">
+          <span id="system-message-text" aria-hidden="true"></span>
+          <span id="system-message-announcement" class="visually-hidden" role="status" aria-atomic="true"></span>
+        </div>
       </section>
       <div class="playback" role="group" aria-label="Playback controls">
         <button id="play-pause" type="button" data-playing="false" aria-label="Play">

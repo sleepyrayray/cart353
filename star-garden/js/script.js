@@ -86,6 +86,8 @@ const planetColours = [
 ];
 // Compressed disk evolution for the experience, not real astronomical timescales.
 const DISK_CLEARING_START_SECONDS = 30;
+const PLANET_COLOUR_REPORT_SECONDS = 50;
+const DUST_CLEARING_REPORT_SECONDS = 90;
 const DISK_CLEARING_END_SECONDS = 120;
 const LAST_DUST_DEPARTURE_START_SECONDS = 100;
 
@@ -112,7 +114,7 @@ function setup() {
   noLoop();
 
   document.getElementById("play-pause").addEventListener("click", togglePlayback);
-  document.getElementById("reset").addEventListener("click", restartOrbit);
+  document.getElementById("reset").addEventListener("click", resetOrbit);
   // The canvas fills the space above the controls, even when the bar resizes.
   new ResizeObserver(() => {
     const spaceWidth = Math.max(1, space.clientWidth);
@@ -140,16 +142,11 @@ function togglePlayback() {
   else playOrbit();
 }
 
-function restartOrbit() {
-  const wasPlaying = isPlaying;
-  resetOrbit();
-  if (wasPlaying) playOrbit();
-}
-
 function playOrbit() {
   if (isPlaying) return;
   isPlaying = true;
   lastFrameTime = performance.now();
+  systemReporter.start();
   updatePlaybackControls();
   loop();
 }
@@ -176,6 +173,7 @@ function resetOrbit() {
   dustParticles = createDustCloud(view);
   diskAgeSeconds = 0;
   updateElapsedTime();
+  systemReporter.reset();
   const startingPhase = random(TWO_PI);
   const seedCount = Math.floor(random(MIN_SEEDS, MAX_SEEDS + 1));
   const availableColours = [...planetColours];
@@ -220,7 +218,7 @@ function resetOrbit() {
 }
 
 function getVisitorScreenBounds() {
-  // The canvas fills the current browser viewport. Panels never define an edge.
+  // The canvas ends at the top of the controls bar.
   return { left: 0, right: width, top: 0, bottom: height };
 }
 
@@ -320,6 +318,7 @@ function retireOffscreenVisitor(body, position, radius, view) {
   const y = view.y + position.y * view.pixelsPerAU;
   const visible = x + radius >= 0 && x - radius <= width
     && y + radius >= 0 && y - radius <= height;
+  body.visibleOnScreen = visible;
   if (visible) body.hasEnteredScreen = true;
   const outside = x + radius < -VISITOR_EDGE_OFFSET || x - radius > width + VISITOR_EDGE_OFFSET
     || y + radius < -VISITOR_EDGE_OFFSET || y - radius > height + VISITOR_EDGE_OFFSET;
@@ -343,6 +342,13 @@ function updateVisitors(view) {
   comets = comets.filter(comet => comet.active || comet.trail.length > 0);
   if (!isPlaying || diskAgeSeconds < DISK_CLEARING_END_SECONDS || dustParticles.length > 0) return;
 
+  if (!systemReporter.hasSeenIntro("rogues") && roguePlanets.filter(body => body.visibleOnScreen).length >= 2) {
+    systemReporter.intro("rogues");
+  }
+  if (!systemReporter.hasSeenIntro("comets")
+    && comets.filter(comet => comet.active && comet.visibleOnScreen).length >= 2) {
+    systemReporter.intro("comets");
+  }
   if (diskAgeSeconds >= nextRogueAt && roguePlanets.length < MAX_ROGUE_PLANETS) {
     addRoguePlanet(view);
     nextRogueAt = diskAgeSeconds + random(...VISITOR_ARRIVAL_INTERVAL);
@@ -381,6 +387,7 @@ function advanceComets(view, surfaceRadius, planets) {
         break;
       }
     }
+    if (!seed.isRogue) systemReporter.report(seed.active ? "cometDamage" : "cometDestroyedPlanet");
   }
   mergeTouchingComets(motions, view.pixelsPerAU);
   return motions;
@@ -425,6 +432,7 @@ function mergeTouchingComets(motions, pixelsPerAU) {
       survivor.strength = MERGED_COMET_STRENGTH;
       survivor.hasEnteredScreen ||= absorbed.hasEnteredScreen;
       changedPaths.add(survivor);
+      systemReporter.report("cometMerger");
     }
     absorbed.active = false; // Its existing trail fades normally.
   }
@@ -433,13 +441,13 @@ function mergeTouchingComets(motions, pixelsPerAU) {
 function findLaserThreat(shooter, origin, range) {
   let nearest = null;
   let closest = range * range;
-  function consider(body, position) {
+  function consider(body, position, targetPlanet = null) {
     const dx = position.x - origin.x;
     const dy = position.y - origin.y;
     const distanceSquared = dx * dx + dy * dy;
     if (distanceSquared > 0 && distanceSquared < closest) {
       closest = distanceSquared;
-      nearest = { dx, dy, velocity: body.velocity, motionRate: body.motionRate ?? 1 };
+      nearest = { dx, dy, velocity: body.velocity, motionRate: body.motionRate ?? 1, targetPlanet };
     }
   }
   for (const comet of comets) {
@@ -447,7 +455,7 @@ function findLaserThreat(shooter, origin, range) {
   }
   for (const planet of seeds) {
     if (planet.active && !planet.isRogue && planet !== shooter) {
-      consider(planet, getSeedDisplayPosition(planet));
+      consider(planet, getSeedDisplayPosition(planet), planet);
     }
   }
   return nearest;
@@ -479,8 +487,35 @@ function firePlanetLasers(view) {
       colour: getSeedAppearance(planet).colour.join(","),
       expiresAt: diskAgeSeconds + LASER_SHOT_LIFETIME_SECONDS,
     });
+    // A fight needs actual shots aimed both ways, not just two nearby armed planets.
+    const target = threat.targetPlanet;
+    if (target?.lastLaserTarget === planet
+      && diskAgeSeconds - target.lastLaserShotAt <= LASER_SHOT_LIFETIME_SECONDS) {
+      systemReporter.report("planetLaserExchange");
+    }
+    planet.lastLaserTarget = target;
+    planet.lastLaserShotAt = diskAgeSeconds;
     planet.nextLaserShotAt = diskAgeSeconds + LASER_SHOT_INTERVAL_SECONDS;
   }
+}
+
+function cometThreatensPlanet(comet, planet, view, surfaceRadius) {
+  if (!planet.active) return false;
+  // Only report a save if a short projection puts the comet on course for its shooter.
+  const origin = getSeedDisplayPosition(planet);
+  const lookahead = 2 * YEARS_PER_SECOND;
+  const endX = comet.position.x + comet.velocity.x * comet.motionRate * lookahead;
+  const endY = comet.position.y + comet.velocity.y * comet.motionRate * lookahead;
+  const coreRadius = getCometRadius(comet) / view.pixelsPerAU;
+  const contact = getCircleContactFraction(
+    comet.position.x - origin.x, comet.position.y - origin.y,
+    endX - origin.x - planet.velocity.x * lookahead,
+    endY - origin.y - planet.velocity.y * lookahead,
+    coreRadius + getSeedRadius(planet, view.radius) / view.pixelsPerAU,
+  );
+  const starContact = getCircleContactFraction(comet.position.x, comet.position.y, endX, endY,
+    surfaceRadius + coreRadius);
+  return contact <= 1 && contact < starContact;
 }
 
 function advanceLaserShots(view, surfaceRadius, planets, cometMotions) {
@@ -512,8 +547,13 @@ function advanceLaserShots(view, surfaceRadius, planets, cometMotions) {
     if (fraction <= 1) {
       if (hit?.comet) {
         hit.comet.active = false;
+        if (systemReporter.canReport("interceptedComet")
+          && cometThreatensPlanet(hit.comet, shot.shooter, view, surfaceRadius)) {
+          systemReporter.report("interceptedComet");
+        }
       } else if (hit?.seed && (hit.seed.isRogue || !removePlanetProtection(hit.seed))) {
         destroyPlanet(hit.seed, view);
+        if (!hit.seed.isRogue) systemReporter.report("planetShotDown");
       }
       return false;
     }
@@ -655,10 +695,15 @@ function addPlanetProtection(seed) {
   seed.moons ??= [];
   if (seed.moons.length < MAX_MOONS) {
     seed.moons.push({ angle: random(TWO_PI), startedAt: diskAgeSeconds });
-  } else if (!seed.hasRings) {
+    return "moon";
+  }
+  if (!seed.hasRings) {
     seed.hasRings = true;
-  } else if (!seed.sizeProtection?.active) {
+    return "rings";
+  }
+  if (!seed.sizeProtection?.active) {
     setPlanetSizeProtection(seed, true);
+    return "sizeBoost";
   }
 }
 
@@ -667,11 +712,13 @@ function updatePlanetEvolution(seed) {
     seed.lifeReadyAt = null;
     seed.lifeStartedAt = diskAgeSeconds;
     seed.laserReadyAt = diskAgeSeconds + PLANET_LASER_WAIT_SECONDS;
+    systemReporter.report("life");
   }
   if (seed.laserReadyAt != null && diskAgeSeconds >= seed.laserReadyAt) {
     seed.laserReadyAt = null;
     seed.laserDefense = true;
     seed.nextLaserShotAt = diskAgeSeconds;
+    systemReporter.report("lasers");
   }
 }
 
@@ -798,6 +845,7 @@ function mergeTouchingSeeds(view) {
         if (Math.hypot(first.position.x - second.position.x,
           first.position.y - second.position.y) > contactDistance) continue;
         const bothRogues = first.isRogue && second.isRogue;
+        const bothResidents = !first.isRogue && !second.isRogue;
         const firstSurvives = firstPlanetSurvives(first, second, firstRadius, secondRadius);
         const survivor = firstSurvives ? first : second;
         const absorbed = survivor === first ? second : first;
@@ -806,6 +854,7 @@ function mergeTouchingSeeds(view) {
         if (absorbed.isRogue && !survivor.isRogue) {
           // Feeding a resident transfers material while keeping its orbit at contact.
           absorbSeedMaterial(survivor, absorbed);
+          systemReporter.report("absorbedRogue");
         } else {
           const survivorPosition = { ...getSeedDisplayPosition(survivor) };
           mergeSeedBodies(survivor, absorbed, view.radius / view.pixelsPerAU);
@@ -816,7 +865,13 @@ function mergeTouchingSeeds(view) {
             startedAt: diskAgeSeconds,
           };
         }
-        addPlanetProtection(survivor);
+        const protection = addPlanetProtection(survivor);
+        if (bothResidents && protection === "moon" && dustParticles.some(particle => particle.remaining > 0)) {
+          systemReporter.report("dustMoonMerger");
+        } else {
+          if (bothResidents) systemReporter.report("planetMerger");
+          if (protection) systemReporter.report(protection);
+        }
         // Retarget ongoing absorptions if their host is itself eaten in a chain.
         for (const animation of mergerAnimations) {
           if (animation.target === absorbed) animation.target = survivor;
@@ -1159,6 +1214,23 @@ function drawSpaceBodies(context, view, dustOpacity) {
   }
 }
 
+function reportFormationMessages(view) {
+  const first = !systemReporter.hasSeenIntro("firstPlanets");
+  const clearing = diskAgeSeconds >= DUST_CLEARING_REPORT_SECONDS
+    && diskAgeSeconds < DISK_CLEARING_END_SECONDS
+    && !systemReporter.hasSeenIntro("dustClearing");
+  if (!first && !clearing) return;
+  const visible = seeds.filter(seed => {
+    if (!seed.active || seed.isRogue || seed.colourProgress < 0.25) return false;
+    const position = getSeedDisplayPosition(seed);
+    const x = view.x + position.x * view.pixelsPerAU;
+    const y = view.y + position.y * view.pixelsPerAU;
+    return x >= 0 && x <= width && y >= 0 && y <= height;
+  });
+  if (first && visible.length >= 3) systemReporter.intro("firstPlanets");
+  if (clearing && visible.length >= 2) systemReporter.intro("dustClearing");
+}
+
 function draw() {
   if (isPlaying) {
     const now = performance.now();
@@ -1170,6 +1242,13 @@ function draw() {
   }
   const view = getSpaceView();
   updateVisitors(view);
+  if (isPlaying) {
+    reportFormationMessages(view);
+    if (diskAgeSeconds >= PLANET_COLOUR_REPORT_SECONDS && dustParticles.length > 0) {
+      systemReporter.intro("planetColours");
+    }
+    systemReporter.update(diskAgeSeconds);
+  }
   background("#0b0d16");
   if (view.radius <= 0) return;
 

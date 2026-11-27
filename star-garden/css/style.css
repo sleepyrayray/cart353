@@ -109,32 +109,50 @@ canvas {
 
 .message-screen {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 5px;
+  grid-template-rows: minmax(0, 1fr);
   min-width: 0;
-  height: clamp(52px, 8dvh, 74px);
+  height: clamp(96px, 12dvh, 116px);
   padding: 8px clamp(8px, 1.5vw, 16px);
   border: 1px solid #27536f;
   border-radius: 9px;
   background: #091424;
-  color: #d5f3ff;
-}
-
-.message-screen h2 {
-  margin: 0;
-  color: #9cbddb;
-  font-size: clamp(10px, 1.4vw, 13px);
-  font-weight: 400;
-  line-height: 1.4;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  color: #9fc8e1;
 }
 
 #system-messages {
+  display: flex;
+  flex-direction: column;
   overflow-y: auto;
   overflow-wrap: anywhere;
-  font-size: clamp(11px, 1.5vw, 15px);
+  font-size: clamp(10px, 1.3vw, 13px);
   line-height: 1.4;
+}
+
+#system-message-text {
+  flex: none;
+  margin-block: auto;
+  text-align: center;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@media (max-width: 520px) {
+  .controls {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 10px;
+  }
+
+  .playback {
+    grid-row: 1;
+    justify-self: center;
+  }
 }
 
 @media (max-width: 350px) {
