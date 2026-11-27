@@ -10,13 +10,13 @@ const INTRO_MESSAGES = {
 
 const LIVE_REPORTS = {
   dustMoonMerger: "Nice! Two planets collided, and the one that survived now has a moon.",
-  absorbedRogue: "One of those rogues just got swallowed by a planet.",
   planetMerger: "Those two planets just became one.",
   moon: "Look, a new moon is circling that planet.",
   rings: "That planet’s got rings now.",
   sizeBoost: "That planet just got a little bigger.",
   life: "Life has begun on that planet. See it glowing?",
   lasers: "That planet’s got new tech. It can shoot at nearby threats now.",
+  laserTechDamaged: "That planet’s tech took a hit. It needs repairs before it can fire again.",
   cometMerger: "Those comets just merged into one bigger, faster comet.",
   cometDamage: "That comet took out a layer of protection.",
   cometDestroyedPlanet: "That comet hit a planet and took it out.",

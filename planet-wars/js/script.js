@@ -726,6 +726,7 @@ function removePlanetProtection(seed) {
   if (seed.laserDefense) {
     seed.laserDefense = false;
     seed.laserReadyAt = diskAgeSeconds + PLANET_LASER_WAIT_SECONDS;
+    systemReporter.report("laserTechDamaged");
   } else if (seed.lifeStartedAt != null) {
     seed.lifeStartedAt = null;
     seed.laserReadyAt = null;
@@ -854,7 +855,6 @@ function mergeTouchingSeeds(view) {
         if (absorbed.isRogue && !survivor.isRogue) {
           // Feeding a resident transfers material while keeping its orbit at contact.
           absorbSeedMaterial(survivor, absorbed);
-          systemReporter.report("absorbedRogue");
         } else {
           const survivorPosition = { ...getSeedDisplayPosition(survivor) };
           mergeSeedBodies(survivor, absorbed, view.radius / view.pixelsPerAU);

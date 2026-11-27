@@ -124,7 +124,7 @@ canvas {
   flex-direction: column;
   overflow-y: auto;
   overflow-wrap: anywhere;
-  font-size: clamp(10px, 1.3vw, 13px);
+  font-size: clamp(12px, 3vw, 14px);
   line-height: 1.4;
 }
 
@@ -150,7 +150,6 @@ canvas {
   }
 
   .playback {
-    grid-row: 1;
     justify-self: center;
   }
 }

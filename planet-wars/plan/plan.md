@@ -34,7 +34,7 @@ Then just watch what happens. Planets might change orbits, crash, merge, or get 
 
 The message screen opens with a welcome and waits for Play. Report the first few planets once three colourful ones are visible, call out their colours at 0:50, and hold the leftover-dust line for around 1:30. Wait for at least two rogues or comets before announcing each group.
 
-Keep the live reports tied to what happens. During formation, report a merger and the new moon together if the survivor gains one. Later, call out things like planets trading shots or a shot taking out a resident planet. A planet that just loses protection isn't a takedown. The same live report can repeat after 30 seconds if the event happens again.
+Keep the live reports tied to what happens. During formation, report a merger and the new moon together if the survivor gains one. Later, call out planets trading shots, a hit that knocks out a planet's laser tech, or a shot that takes out a resident planet. Leave out the swallowed-rogue report because it happens so often. A planet that just loses protection isn't a takedown. The same live report can repeat after 30 seconds if the event happens again.
 
 Keep the lines short, conversational, and centred. Type them in letter by letter, one at a time. Give each full message at least eight seconds to read, and leave it up until the next one starts typing. Pause keeps the current line on screen. After the comet intro, show a random tip after 15 seconds without a new message. Show all eight before repeating any, and wait at least 90 seconds before showing the same tip again.
 
@@ -42,7 +42,7 @@ Keep the lines short, conversational, and centred. Type them in letter by letter
 
 1. Research as needed. The research notes are saved outside the repo. Refer back to them when adding something new, especially the incoming objects and what they can do.
 
-2. Keep the screen simple. Centre the Sun above the bottom controls bar. Keep the message screen on the left and Play/Pause, Reset, and the timer close to it on the right. Stack the controls and the message screen on narrow windows so the text has room. Reset goes back to 0:00, shows the welcome message, and waits for Play. Cap the screen at 580 px and centre the whole group on wide windows. Use flat navy colours and Silkscreen for the retro look. Stick to normal playback speed.
+2. Keep the screen simple. Centre the Sun above the bottom controls bar. Keep the message screen on the left and Play/Pause, Reset, and the timer close to it on the right. On narrow windows, stack the message screen above the buttons and timer. Reset goes back to 0:00, shows the welcome message, and waits for Play. Cap the screen at 580 px and centre the whole group on wide windows. Use flat navy colours and Silkscreen for the retro look. Stick to normal playback speed.
 
 3. Make formation easier to follow. Growing seeds, shared dust, gravity, and mergers are working. Keep adjusting the pacing and visuals without making it laggy.
 
