@@ -187,8 +187,10 @@ function stepSeeds(bodies, starMass, timeStep, surfaceRadius, resolveContacts, a
       if (!body.active) continue;
       const startX = body.position.x;
       const startY = body.position.y;
-      body.position.x += body.velocity.x * substep + 0.5 * before[i].x * substep ** 2;
-      body.position.y += body.velocity.y * substep + 0.5 * before[i].y * substep ** 2;
+      // Rogues take shorter motion steps so they move more slowly even near the star.
+      const bodyStep = substep * (body.motionRate ?? 1);
+      body.position.x += body.velocity.x * bodyStep + 0.5 * before[i].x * bodyStep ** 2;
+      body.position.y += body.velocity.y * bodyStep + 0.5 * before[i].y * bodyStep ** 2;
       // Preserve existing absorption at the fixed star.
       if (crossesStellarSurface(startX, startY, body.position, surfaceRadius)) absorbPlanet(body);
     }
@@ -196,8 +198,9 @@ function stepSeeds(bodies, starMass, timeStep, surfaceRadius, resolveContacts, a
     for (let i = 0; i < bodies.length; i++) {
       const body = bodies[i];
       if (!body.active) continue;
-      body.velocity.x += 0.5 * (before[i].x + after[i].x) * substep;
-      body.velocity.y += 0.5 * (before[i].y + after[i].y) * substep;
+      const bodyStep = substep * (body.motionRate ?? 1);
+      body.velocity.x += 0.5 * (before[i].x + after[i].x) * bodyStep;
+      body.velocity.y += 0.5 * (before[i].y + after[i].y) * bodyStep;
     }
     // Merge after both velocity kicks, so momentum uses the same instant for all bodies.
     resolveContacts();

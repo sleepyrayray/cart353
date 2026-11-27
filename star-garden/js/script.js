@@ -7,14 +7,15 @@ const MAX_DUST_COUNT = 6750;
 const DUST_COUNT_MULTIPLIER = 6.75;
 const DUST_FADE_SECONDS = 1.2;
 // Shared display scale for the star and seeds, not a change to their masses.
-const BODY_VISUAL_SCALE = 1.5;
+const BODY_VISUAL_SCALE = 1.8;
+const CAMERA_REFERENCE_BODY_SCALE = 1.5;
 const SEED_STARTING_MATERIAL = 4;
 const SEED_DUST_RADIUS = 1.1;
 const SEED_DUST_VISUAL_GAIN = 1.15;
 // Display radius for one Earth mass, before the shared visual scale.
 // Deliberately enlarged for readability, not to scale with the star or distances.
 const PLANET_EARTH_MASS_RADIUS = 7.5;
-const SEED_GROWTH_SECONDS = 2 / 1.5;
+const SEED_GROWTH_SECONDS = 1.6;
 const MERGER_ANIMATION_SECONDS = 1.1;
 const PLANET_FADE_SECONDS = 0.8;
 const SEED_MAX_STAR_RATIO = 0.5;
@@ -35,16 +36,20 @@ const SEED_COLOUR_THRESHOLD = 3;
 const SEED_EMERGENCE_MATERIAL = 7;
 const MIN_SEEDS = 15;
 const MAX_SEEDS = 20;
-const MAX_ROGUE_PLANETS = 30;
+const MAX_ROGUE_PLANETS = 40;
 const MAX_COMETS = 5;
 const VISITOR_ARRIVAL_INTERVAL = [0.75, 1.5];
+const COMET_ARRIVAL_DELAY_SECONDS = 30;
 const VISITOR_EDGE_OFFSET = 2;
 const ROGUE_STAR_SIZE_RATIO = 0.20;
-const ROGUE_COLOUR = [70, 70, 70];
+const ROGUE_COLOUR = [58, 58, 58];
+const ROGUE_MOTION_RATE = 0.9;
 const ROGUE_CLOSEST_APPROACH_RANGE = [0.2, 0.7];
 const COMET_CORE_RADIUS = 3;
 const COMET_EXCESS_SPEED_RANGE = [0.55, 1.05];
+const COMET_MOTION_RATE = 1.2;
 const MERGED_COMET_STRENGTH = 2;
+const MERGED_COMET_SPEED_MULTIPLIER = 2;
 const COMET_TRAIL_SECONDS = 0.8;
 const COMET_COLOUR = "255, 73, 85";
 const MAX_MOONS = 3;
@@ -91,7 +96,7 @@ let roguePlanets = [];
 let comets = [];
 let laserShots = [];
 let nextRogueAt = 0;
-let nextCometAt = 0;
+let nextCometAt = null;
 let mergerAnimations = [];
 let planetFades = [];
 let diskAgeSeconds = 0;
@@ -113,7 +118,7 @@ function setup() {
   document.addEventListener("visibilitychange", () => {
     if (document.hidden && isPlaying) pauseOrbit();
   });
-  describe(`A Sun-like star born from a dust-rich cloud. Its mass is the same as the Sun's. Each run starts with the maximum dust setting for the current screen size. Each reset creates between ${MIN_SEEDS} and ${MAX_SEEDS} seeds with orbit sizes spread across a wide band and slightly oval, differently oriented paths. Some paths can cross, but collisions are not forced. Press Play to reveal the finite dust supply and seeds, which initially look like the other particles. Each seed gently attracts nearby dust and grows by collecting dust that touches it. The size it reaches when the dust clears becomes its base size. Their pull on dust strengthens with growth but is capped. Seeds gravitationally affect each other's orbits using masses based on collected material, while the star stays fixed. Seeds merge when their visible edges touch and combine mass. Between residents, the planet with more protection survives, counting moons, rings, the size boost, the life glow, and laser defense. If both have equal protection, either can survive. Size decides only when neither has protection. From thirty seconds, leftover dust gradually drifts outward and off the screen at staggered times. All dust is gone by two minutes. After the dust clears, rogue planets and comets arrive automatically from the edges. Up to ${MAX_ROGUE_PLANETS} rogue planets and ${MAX_COMETS} comets can be active at once. Rogue planets are dark grey, ${Math.round(ROGUE_STAR_SIZE_RATIO * 100)}% of the star's width, and tend to pass through the inner system. When a rogue and a resident touch, the resident absorbs the rogue and keeps its orbit at contact. Two rogues merge into one rogue on contact. Mergers let a resident planet gain or restore three moons, rings, and a size boost, one layer at a time. After thirty seconds of active playback with the size boost, the planet gains a pulsing glow in its own colour to show that life has begun. Losing the glow restarts the wait if the size boost is still there. Two regular comets merge into one comet twice the normal width. If a big comet hits another comet, one big comet continues unchanged and the other disappears. A regular comet takes one life and a merged comet takes up to two. After thirty more seconds with the glow, a planet can fire shots in its own colour at nearby comets and resident planets. A shot destroys a comet or a rogue in its path, removes one layer from a protected planet, or destroys one with no protection. Comet impacts remove laser defense first, then the glow, the size boost, the rings, the moons, and finally the planet. Destroyed planets fade out. Contact with the star removes the comet. Reset starts fresh. Visible sizes, dust attraction, clearing motion, and time are exaggerated.`);
+  describe(`A Sun-like star born from a dust-rich cloud. Its mass is the same as the Sun's. Each run starts with the maximum dust setting for the current screen size. Each reset creates between ${MIN_SEEDS} and ${MAX_SEEDS} seeds with orbit sizes spread across a wide band and slightly oval, differently oriented paths. Some paths can cross, but collisions are not forced. Press Play to reveal the finite dust supply and seeds, which initially look like the other particles. Each seed gently attracts nearby dust and grows by collecting dust that touches it. The size it reaches when the dust clears becomes its base size. Their pull on dust strengthens with growth but is capped. Seeds gravitationally affect each other's orbits using masses based on collected material, while the star stays fixed. Seeds merge when their visible edges touch and combine mass. Between residents, the planet with more protection survives, counting moons, rings, the size boost, the life glow, and laser defense. If both have equal protection, either can survive. Size decides only when neither has protection. From thirty seconds, leftover dust gradually drifts outward and off the screen at staggered times. All dust is gone by two minutes. After the dust clears, rogue planets arrive automatically from the edges. Comets start arriving thirty seconds after the first rogue enters the screen. Up to ${MAX_ROGUE_PLANETS} rogue planets and ${MAX_COMETS} comets can be active at once. Rogue planets are dark grey, ${Math.round(ROGUE_STAR_SIZE_RATIO * 100)}% of the star's width, and move more slowly as they pass through the inner system. When a rogue and a resident touch, the resident absorbs the rogue and keeps its orbit at contact. Two rogues merge into one rogue on contact. Mergers let a resident planet gain or restore three moons, rings, and a size boost, one layer at a time. After thirty seconds of active playback with the size boost, the planet gains a pulsing glow in its own colour to show that life has begun. Losing the glow restarts the wait if the size boost is still there. Two regular comets merge into one comet twice the normal width and twice their average speed at contact. If a big comet hits another comet, one big comet continues unchanged and the other disappears. A regular comet takes one life and a merged comet takes up to two. After thirty more seconds with the glow, a planet can fire shots in its own colour at nearby comets and resident planets. A shot destroys a comet or a rogue in its path, removes one layer from a protected planet, or destroys one with no protection. Comet impacts remove laser defense first, then the glow, the size boost, the rings, the moons, and finally the planet. Destroyed planets fade out. Contact with the star removes the comet. Reset starts fresh. Visible sizes, dust attraction, clearing motion, and time are exaggerated.`);
   resetOrbit();
 }
 
@@ -145,7 +150,7 @@ function resetOrbit() {
   comets = [];
   laserShots = [];
   nextRogueAt = 0;
-  nextCometAt = 0;
+  nextCometAt = null;
   mergerAnimations = [];
   planetFades = [];
   updatePlanetInfo();
@@ -263,7 +268,7 @@ function addComet(view) {
     excessSpeedRange: COMET_EXCESS_SPEED_RANGE,
   });
   if (!approach) return;
-  comets.push({ ...approach, strength: 1, trail: [] });
+  comets.push({ ...approach, strength: 1, motionRate: COMET_MOTION_RATE, trail: [] });
 }
 
 function getCometRadius(comet) {
@@ -285,6 +290,7 @@ function addRoguePlanet(view) {
     material,
     visibleMaterial: material,
     isRogue: true,
+    motionRate: ROGUE_MOTION_RATE,
     collected: 0,
     entering: true,
   };
@@ -324,7 +330,11 @@ function updateVisitors(view) {
     addRoguePlanet(view);
     nextRogueAt = diskAgeSeconds + random(...VISITOR_ARRIVAL_INTERVAL);
   }
-  if (diskAgeSeconds >= nextCometAt && comets.filter(comet => comet.active).length < MAX_COMETS) {
+  if (nextCometAt === null && roguePlanets.some(body => body.hasEnteredScreen)) {
+    nextCometAt = diskAgeSeconds + COMET_ARRIVAL_DELAY_SECONDS;
+  }
+  if (nextCometAt !== null && diskAgeSeconds >= nextCometAt
+    && comets.filter(comet => comet.active).length < MAX_COMETS) {
     addComet(view);
     nextCometAt = diskAgeSeconds + random(...VISITOR_ARRIVAL_INTERVAL);
   }
@@ -336,7 +346,8 @@ function advanceComets(view, surfaceRadius, planets) {
     if (!comet.active) continue;
     const start = comet.position;
     const radius = getCometRadius(comet);
-    const impact = stepComet(comet, STAR_MASS, PHYSICS_STEP, surfaceRadius, radius / view.pixelsPerAU, planets);
+    const cometStep = PHYSICS_STEP * comet.motionRate;
+    const impact = stepComet(comet, STAR_MASS, cometStep, surfaceRadius, radius / view.pixelsPerAU, planets);
     comet.trail.push({ ...comet.position, radius, time: diskAgeSeconds });
     if (!impact) {
       motions.push({ comet, start });
@@ -378,9 +389,21 @@ function mergeTouchingComets(motions, pixelsPerAU) {
     const [survivor, absorbed] = a.strength >= b.strength ? [a, b] : [b, a];
     if (survivor.strength < MERGED_COMET_STRENGTH) {
       // Only two regular comets combine paths. An existing big comet stays unchanged.
+      const firstSpeed = Math.hypot(survivor.velocity.x, survivor.velocity.y);
+      const secondSpeed = Math.hypot(absorbed.velocity.x, absorbed.velocity.y);
+      const speed = (firstSpeed + secondSpeed) / 2 * MERGED_COMET_SPEED_MULTIPLIER;
+      const combinedX = survivor.velocity.x + absorbed.velocity.x;
+      const combinedY = survivor.velocity.y + absorbed.velocity.y;
+      const combinedSpeed = Math.hypot(combinedX, combinedY);
+      // Near head-on, keep the faster comet's direction so they don't stall.
+      const fallback = firstSpeed >= secondSpeed ? survivor.velocity : absorbed.velocity;
+      const angle = combinedSpeed > (firstSpeed + secondSpeed) * 0.05
+        ? Math.atan2(combinedY, combinedX)
+        : Math.atan2(fallback.y, fallback.x);
+      survivor.velocity.x = Math.cos(angle) * speed;
+      survivor.velocity.y = Math.sin(angle) * speed;
       for (const axis of ["x", "y"]) {
         survivor.position[axis] = lerp(survivor.position[axis], absorbed.position[axis], 0.5);
-        survivor.velocity[axis] = lerp(survivor.velocity[axis], absorbed.velocity[axis], 0.5);
       }
       survivor.strength = MERGED_COMET_STRENGTH;
       survivor.hasEnteredScreen ||= absorbed.hasEnteredScreen;
@@ -399,7 +422,7 @@ function findLaserThreat(shooter, origin, range) {
     const distanceSquared = dx * dx + dy * dy;
     if (distanceSquared > 0 && distanceSquared < closest) {
       closest = distanceSquared;
-      nearest = { dx, dy, velocity: body.velocity };
+      nearest = { dx, dy, velocity: body.velocity, motionRate: body.motionRate ?? 1 };
     }
   }
   for (const comet of comets) {
@@ -422,7 +445,8 @@ function firePlanetLasers(view) {
     const threat = findLaserThreat(planet, origin, range);
     if (!threat) continue;
     // Lead moving targets a little. Once fired, the shot flies straight.
-    const lead = Math.min(0.8, Math.hypot(threat.dx, threat.dy) / speed) * YEARS_PER_SECOND;
+    const lead = Math.min(0.8, Math.hypot(threat.dx, threat.dy) / speed)
+      * YEARS_PER_SECOND * threat.motionRate;
     const aimX = threat.dx + threat.velocity.x * lead;
     const aimY = threat.dy + threat.velocity.y * lead;
     const angle = aimX === 0 && aimY === 0
@@ -892,7 +916,7 @@ function getSpaceView() {
   const seedOrbitBase = Math.max(1.3, heatRadius * 1.25 + 0.15);
   // Keep the camera framed the same as the original 1× Sun preview.
   const cameraReferenceMass = 5;
-  const maxBaseRadius = Math.min(100, availableSpace * 0.16) / 2.5 * BODY_VISUAL_SCALE;
+  const maxBaseRadius = Math.min(100, availableSpace * 0.16) / 2.5 * CAMERA_REFERENCE_BODY_SCALE;
   const maxHeatRadius = Math.max(maxBaseRadius / basePixelsPerAU * 2, 0.12 * cameraReferenceMass ** 1.75);
   const maxSeedOrbitBase = Math.max(1.3, maxHeatRadius * 1.25 + 0.15);
   const cameraReferenceOrbit = maxSeedOrbitBase * 2
@@ -1112,27 +1136,9 @@ function drawPlanetFades(context, view, visibility) {
   }
 }
 
-function draw() {
-  if (isPlaying) {
-    const now = performance.now();
-    const frameSeconds = Math.min((now - lastFrameTime) / 1000, 0.25);
-    advanceOrbit(frameSeconds);
-    dustRevealTime = Math.min(DUST_FADE_SECONDS, dustRevealTime + frameSeconds);
-    lastFrameTime = now;
-  }
-  const view = getSpaceView();
-  updateVisitors(view);
-  updatePlanetInfo();
-  background("#0b0d16");
-
-  // Keep the star clear of the controls, while dust fills the whole canvas.
-  const { x, y, radius, pixelsPerAU } = view;
-
-  if (radius <= 0) return;
-
+function drawStar(context, { x, y, radius }) {
   const rgb = STAR_COLOUR;
   const brightness = STAR_GLOW;
-  const context = drawingContext;
 
   // Draw a soft halo around the star.
   const glow = context.createRadialGradient(x, y, radius * 0.5, x, y, radius * 3);
@@ -1150,12 +1156,10 @@ function draw() {
   context.beginPath();
   context.arc(x, y, radius, 0, Math.PI * 2);
   context.fill();
+}
 
-  // Fade reveals material that is already moving, rather than spawning it.
-  // Resizing only changes the view, not the dust's physical coordinates.
-  const fadeProgress = dustRevealTime / DUST_FADE_SECONDS;
-  const dustOpacity = fadeProgress * fadeProgress * (3 - 2 * fadeProgress);
-  if (dustOpacity === 0) return;
+function drawSpaceBodies(context, view, dustOpacity) {
+  const { x, y, radius, pixelsPerAU } = view;
   for (const particle of dustParticles) {
     const particleX = x + particle.position.x * pixelsPerAU;
     const particleY = y + particle.position.y * pixelsPerAU;
@@ -1200,6 +1204,28 @@ function draw() {
     }
     if (seed.entering) context.restore();
   }
+}
+
+function draw() {
+  if (isPlaying) {
+    const now = performance.now();
+    const frameSeconds = Math.min((now - lastFrameTime) / 1000, 0.25);
+    advanceOrbit(frameSeconds);
+    dustRevealTime = Math.min(DUST_FADE_SECONDS, dustRevealTime + frameSeconds);
+    lastFrameTime = now;
+  }
+  const view = getSpaceView();
+  updateVisitors(view);
+  updatePlanetInfo();
+  background("#0b0d16");
+  if (view.radius <= 0) return;
+
+  // Fade reveals material that's already moving.
+  const dustOpacity = smoothProgress(dustRevealTime / DUST_FADE_SECONDS);
+  const context = drawingContext;
+  if (dustOpacity > 0) drawSpaceBodies(context, view, dustOpacity);
+  // Draw the star last, so bodies and their fade animations pass behind it.
+  drawStar(context, view);
 }
 
 function windowResized() {
